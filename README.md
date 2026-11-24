@@ -7,8 +7,8 @@ chaque round.
 
 ## Installation
 
-1. Construire avec `dotnet build -c Release`.
-2. Copier `bin/Release/net10.0/ILYLeadYou.dll` dans
+1. Publier avec `dotnet publish -c Release -o publish`.
+2. Copier le contenu complet de `publish/` dans
    `game/csgo/addons/counterstrikesharp/plugins/ILYLeadYou/`.
 3. Charger le plugin et lancer `de_inferno` en 3v3.
 
@@ -29,4 +29,5 @@ joueurs: Eco (800$), Lowbuy (2 500$), Force (3 500$) ou Full (5 000$). Les
 joueurs restent libres de choisir leur équipement.
 
 Le pool de cartes est organisé ainsi: cartes principales Inferno et Anubis;
-choix Cache, Dust 2 et Ancient; autres cartes Overpass, Vertigo et Mirage.
+choix Inferno, Anubis, Cache, Dust 2 et Ancient; autres cartes Overpass,
+Vertigo, Mirage, etc.

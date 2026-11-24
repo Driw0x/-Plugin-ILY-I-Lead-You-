@@ -40,13 +40,6 @@ public sealed class ILYLeadYouPlugin : BasePlugin
         (EconomyTier.Eco, 800)
     ];
 
-    private static readonly TerroristPlan[] TerroristPlans =
-    [
-        TerroristPlan.BananaSlow,
-        TerroristPlan.SecondMidAppsA,
-        TerroristPlan.MidLongA
-    ];
-
     private readonly Dictionary<ulong, RoleAssignment> _ctRoles = [];
     private readonly Dictionary<ulong, TerroristPlan> _terroristVotes = [];
     private readonly Dictionary<CsTeam, EconomyTier> _roundEconomies = [];
@@ -156,20 +149,21 @@ public sealed class ILYLeadYouPlugin : BasePlugin
         var teamPlayers = GetPlayers(CsTeam.Terrorist);
         if (teamPlayers.Count >= 3 && teamPlayers.All(member => _terroristVotes.ContainsKey(member.SteamID)))
         {
-            var topPlans = _terroristVotes.Values
+            var leadingPlan = _terroristVotes.Values
                 .GroupBy(vote => vote)
                 .OrderByDescending(group => group.Count())
-                .Select(group => group.Key)
-                .ToArray();
+                .First();
 
-            var topVotes = _terroristVotes.Values
-                .GroupBy(vote => vote)
-                .Max(group => group.Count());
-            var tiedPlans = topPlans
-                .Where(candidate => _terroristVotes.Values.Count(vote => vote == candidate) == topVotes)
-                .ToArray();
-            _winningPlan = tiedPlans[Random.Shared.Next(tiedPlans.Length)];
-            Broadcast($"Plan Terro retenu: {FormatPlan(_winningPlan.Value)}.");
+            if (leadingPlan.Count() > teamPlayers.Count / 2)
+            {
+                _winningPlan = leadingPlan.Key;
+                Broadcast($"Plan Terro retenu: {FormatPlan(_winningPlan.Value)}.");
+            }
+            else
+            {
+                _terroristVotes.Clear();
+                Broadcast("Égalité: revote nécessaire pour choisir le plan Terro.");
+            }
         }
         else
         {
@@ -235,17 +229,19 @@ public sealed class ILYLeadYouPlugin : BasePlugin
         var economy = _roundEconomies.TryGetValue(player.Team, out var tier)
             ? tier.ToString()
             : "En attente";
-        var role = _ctRoles.TryGetValue(player.SteamID, out var assignment)
-            ? FormatRole(assignment)
-            : "à choisir";
+        var roles = string.Join(" | ", Enum.GetValues<CtRole>().Select(role =>
+            _ctRoles.Values.FirstOrDefault(assignment => assignment.Role == role) is { } selected
+                ? FormatRole(selected)
+                : $"{FormatRoleName(role)}: à choisir"));
         var plan = _winningPlan is { } winner
             ? FormatPlan(winner)
             : $"vote en cours ({_terroristVotes.Count}/3)";
         var html = $"<font color='#ffd700'>ILY — Inferno 3v3</font><br>" +
                    $"Économie: {economy}<br>" +
-                   $"Rôle CT: {WebUtility.HtmlEncode(role)}<br>" +
+                   $"Rôles CT: {WebUtility.HtmlEncode(roles)}<br>" +
                    $"Plan Terro: {WebUtility.HtmlEncode(plan)}<br>" +
-                   "Maps: Inferno / Anubis | Cache / Dust 2 / Ancient";
+                   "Main: Inferno, Anubis | Choix: Inferno, Anubis, Cache, Dust 2, Ancient<br>" +
+                   "Autres: Overpass, Vertigo, Mirage, etc.";
         player.PrintToCenterHtml(html, 10);
     }
 
@@ -256,6 +252,15 @@ public sealed class ILYLeadYouPlugin : BasePlugin
             CtRole.Apps => "Apps",
             CtRole.BSolo => "B solo",
             _ => assignment.Role.ToString()
+        };
+
+    private static string FormatRoleName(CtRole role) =>
+        role switch
+        {
+            CtRole.T => "T",
+            CtRole.Apps => "Apps",
+            CtRole.BSolo => "B solo",
+            _ => role.ToString()
         };
 
     private static string FormatPlan(TerroristPlan plan) =>
