@@ -57,6 +57,7 @@ public sealed class ILYLeadYouPlugin : BasePlugin
         AddCommand("css_scenario", "Display the current scenario, roles, votes and economy.", OnScenarioCommand);
         AddCommand("css_role", "Choose a CT role: t [long-defensive|banana-aggressive], apps, or b-solo.", OnRoleCommand);
         AddCommand("css_tactic", "Vote: banana, second-mid, or mid-long.", OnTacticCommand);
+        AddCommand("css_forcestart", "Force the scenario to start without waiting for six players.", OnForceStartCommand);
     }
 
     private HookResult OnRoundPrestart(EventRoundPrestart gameEvent, GameEventInfo info)
@@ -99,6 +100,12 @@ public sealed class ILYLeadYouPlugin : BasePlugin
         ShowScenario(player);
     }
 
+    private void OnForceStartCommand(CCSPlayerController? player, CommandInfo command)
+    {
+        player?.PrintToChat("Démarrage forcé du scénario.");
+        CounterStrikeSharp.API.Server.ExecuteCommand("mp_warmup_end");
+    }
+    
     private void OnRoleCommand(CCSPlayerController? player, CommandInfo command)
     {
         if (!IsPlayingFor(player, CsTeam.CounterTerrorist))
@@ -241,7 +248,7 @@ public sealed class ILYLeadYouPlugin : BasePlugin
         player.PrintToChat($"Rôles CT: {roles}");
         player.PrintToChat($"Plan Terro: {plan}");
         player.PrintToChat("Cartes: Inferno, Anubis | Choix: Cache, Dust 2, Ancient | Autres: Overpass, Vertigo, Mirage...");
-        player.PrintToChat("Commandes: !scenario | CT: !role t long-defensive|banana-aggressive, !role apps, !role b-solo | Terros: !tactic banana|second-mid|mid-long");
+        player.PrintToChat("Commandes: !scenario | !forcestart | CT: !role t long-defensive|banana-aggressive, !role apps, !role b-solo | Terros: !tactic banana|second-mid|mid-long");
     }
 
     private static string FormatRole(RoleAssignment assignment) =>
