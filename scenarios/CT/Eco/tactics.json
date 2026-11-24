@@ -1,0 +1,24 @@
+{
+  "tactics": [
+    {
+      "id": "stack-b",
+      "label": "Stack B",
+      "map": "de_inferno",
+      "positions": [
+        { "slot": 1, "zone": "Site B", "instruction": "Tenir le site et jouer le trade.", "spawn": null },
+        { "slot": 2, "zone": "Banana", "instruction": "Repérer l'exécution et ralentir l'avancée.", "spawn": null },
+        { "slot": 3, "zone": "CT / rotation", "instruction": "Jouer la rotation courte vers B.", "spawn": null }
+      ]
+    },
+    {
+      "id": "passive-a",
+      "label": "Défense passive A",
+      "map": "de_inferno",
+      "positions": [
+        { "slot": 1, "zone": "Pit", "instruction": "Tenir le crossfire sur Long A.", "spawn": null },
+        { "slot": 2, "zone": "Arch", "instruction": "Surveiller Mid et soutenir A.", "spawn": null },
+        { "slot": 3, "zone": "Site B", "instruction": "Tenir le site et annoncer la présence adverse.", "spawn": null }
+      ]
+    }
+  ]
+}

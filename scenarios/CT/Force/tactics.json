@@ -1,0 +1,24 @@
+{
+  "tactics": [
+    {
+      "id": "aggressive-banana",
+      "label": "Prise agressive Banane",
+      "map": "de_inferno",
+      "positions": [
+        { "slot": 1, "zone": "Banana", "instruction": "Prendre l'information puis reculer si nécessaire.", "spawn": null },
+        { "slot": 2, "zone": "Banana / site B", "instruction": "Soutenir le duel puis reprendre le site.", "spawn": null },
+        { "slot": 3, "zone": "Arch", "instruction": "Couvrir la rotation et éviter le push isolé.", "spawn": null }
+      ]
+    },
+    {
+      "id": "retake-b",
+      "label": "Reprise coordonnée B",
+      "map": "de_inferno",
+      "positions": [
+        { "slot": 1, "zone": "Site B", "instruction": "Retarder l'entrée et survivre.", "spawn": null },
+        { "slot": 2, "zone": "CT", "instruction": "Préparer la reprise avec les coéquipiers.", "spawn": null },
+        { "slot": 3, "zone": "Arch", "instruction": "Rejoindre la reprise et couper la rotation.", "spawn": null }
+      ]
+    }
+  ]
+}

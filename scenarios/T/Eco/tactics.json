@@ -1,0 +1,24 @@
+{
+  "tactics": [
+    {
+      "id": "banana",
+      "label": "Rush Banane",
+      "map": "de_inferno",
+      "positions": [
+        { "slot": 1, "zone": "Banana", "instruction": "Ouvrir la marche et prendre l'espace.", "spawn": null },
+        { "slot": 2, "zone": "Banana", "instruction": "Suivre l'entrée et lancer les flashes.", "spawn": null },
+        { "slot": 3, "zone": "Banana", "instruction": "Fermer la marche et trade le premier duel.", "spawn": null }
+      ]
+    },
+    {
+      "id": "second-mid",
+      "label": "Split depuis second mid",
+      "map": "de_inferno",
+      "positions": [
+        { "slot": 1, "zone": "Second mid", "instruction": "Prendre le contrôle avec l'entrée.", "spawn": null },
+        { "slot": 2, "zone": "Apps", "instruction": "Avancer avec le joueur de second mid.", "spawn": null },
+        { "slot": 3, "zone": "Banana", "instruction": "Faire du bruit puis rejoindre l'équipe.", "spawn": null }
+      ]
+    }
+  ]
+}

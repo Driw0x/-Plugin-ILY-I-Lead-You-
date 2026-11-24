@@ -1,0 +1,24 @@
+{
+  "tactics": [
+    {
+      "id": "mid-long",
+      "label": "Mid vers Long A",
+      "map": "de_inferno",
+      "positions": [
+        { "slot": 1, "zone": "Mid", "instruction": "Prendre le contrôle du mid.", "spawn": null },
+        { "slot": 2, "zone": "Second mid", "instruction": "Soutenir la progression et surveiller Apps.", "spawn": null },
+        { "slot": 3, "zone": "Long A", "instruction": "Préparer l'entrée et vérifier le pit.", "spawn": null }
+      ]
+    },
+    {
+      "id": "banana-contact",
+      "label": "Contact Banane",
+      "map": "de_inferno",
+      "positions": [
+        { "slot": 1, "zone": "Banana", "instruction": "Prendre le premier duel avec l'utilitaire disponible.", "spawn": null },
+        { "slot": 2, "zone": "Banana", "instruction": "Trade l'entrée et préparer l'exécution.", "spawn": null },
+        { "slot": 3, "zone": "Second mid", "instruction": "Empêcher la rotation puis rejoindre le site B.", "spawn": null }
+      ]
+    }
+  ]
+}

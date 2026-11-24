@@ -1,0 +1,24 @@
+{
+  "tactics": [
+    {
+      "id": "second-mid-a",
+      "label": "Second mid vers Apps A",
+      "map": "de_inferno",
+      "positions": [
+        { "slot": 1, "zone": "Second mid", "instruction": "Prendre le mid avec les flashes du groupe.", "spawn": null },
+        { "slot": 2, "zone": "Apps", "instruction": "Préparer l'entrée depuis Apps.", "spawn": null },
+        { "slot": 3, "zone": "Long A", "instruction": "Couper les rotations et rejoindre l'exécution.", "spawn": null }
+      ]
+    },
+    {
+      "id": "mid-long-a",
+      "label": "Mid vers Long A",
+      "map": "de_inferno",
+      "positions": [
+        { "slot": 1, "zone": "Mid", "instruction": "Prendre le contrôle avec un coéquipier.", "spawn": null },
+        { "slot": 2, "zone": "Long A", "instruction": "Ouvrir le site après les fumigènes.", "spawn": null },
+        { "slot": 3, "zone": "Second mid", "instruction": "Surveiller Apps puis soutenir l'entrée.", "spawn": null }
+      ]
+    }
+  ]
+}

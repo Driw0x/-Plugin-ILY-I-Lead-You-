@@ -1,8 +1,11 @@
-using System.Net;
+using System.Text.Json;
+using System.Globalization;
 using CounterStrikeSharp.API;
 using CounterStrikeSharp.API.Core;
 using CounterStrikeSharp.API.Modules.Commands;
+using CounterStrikeSharp.API.Modules.Menu;
 using CounterStrikeSharp.API.Modules.Utils;
+using Microsoft.Extensions.Logging;
 
 namespace ILYLeadYou;
 
@@ -16,21 +19,54 @@ public sealed class ILYLeadYouPlugin : BasePlugin
         Full
     }
 
-    private enum CtRole
+    private sealed class TacticCatalog
     {
-        T,
-        Apps,
-        BSolo
+        public TacticCatalog() { }
+        public List<TacticalOption> Tactics { get; set; } = [];
     }
 
-    private enum TerroristPlan
+    private sealed class TacticalOption
     {
-        BananaSlow,
-        SecondMidAppsA,
-        MidLongA
+        public TacticalOption() { }
+        public string Id { get; set; } = "";
+        public string Label { get; set; } = "";
+        public string Map { get; set; } = "";
+        public List<TacticalPosition> Positions { get; set; } = [];
     }
 
-    private sealed record RoleAssignment(CtRole Role, string? SubRole);
+    private sealed class TacticalPosition
+    {
+        public TacticalPosition() { }
+        public int Slot { get; set; }
+        public string Zone { get; set; } = "";
+        public string Instruction { get; set; } = "";
+        public TacticalSpawn? Spawn { get; set; }
+    }
+
+    private sealed class TacticalSpawn
+    {
+        public TacticalSpawn() { }
+        public SpawnOrigin Origin { get; set; } = new();
+        public SpawnAngles Angles { get; set; } = new();
+    }
+
+    private sealed class SpawnOrigin
+    {
+        public SpawnOrigin() { }
+        public float X { get; set; }
+        public float Y { get; set; }
+        public float Z { get; set; }
+    }
+
+    private sealed class SpawnAngles
+    {
+        public SpawnAngles() { }
+        public float Pitch { get; set; }
+        public float Yaw { get; set; }
+        public float Roll { get; set; }
+    }
+
+    private readonly record struct SpawnLocation(float X, float Y, float Z);
 
     private static readonly (EconomyTier Tier, int Cash)[] Economies =
     [
@@ -40,11 +76,12 @@ public sealed class ILYLeadYouPlugin : BasePlugin
         (EconomyTier.Eco, 800)
     ];
 
-    private readonly Dictionary<ulong, RoleAssignment> _ctRoles = [];
-    private readonly Dictionary<ulong, TerroristPlan> _terroristVotes = [];
+    private readonly Dictionary<(CsTeam Team, EconomyTier Tier), List<TacticalOption>> _tacticCatalogs = [];
+    private readonly Dictionary<CsTeam, Dictionary<ulong, string>> _tacticVotes = [];
+    private readonly Dictionary<CsTeam, TacticalOption> _selectedTactics = [];
+    private readonly Dictionary<CsTeam, Dictionary<int, TacticalPosition>> _spawnAssignments = [];
     private readonly Dictionary<CsTeam, EconomyTier> _roundEconomies = [];
     private readonly Dictionary<CsTeam, ulong> _teamReadyPlayers = [];
-    private TerroristPlan? _winningPlan;
 
     public override string ModuleName => "ILY Lead You";
     public override string ModuleVersion => "1.0.0";
@@ -53,24 +90,26 @@ public sealed class ILYLeadYouPlugin : BasePlugin
 
     public override void Load(bool hotReload)
     {
+        LoadTacticCatalogs();
         RegisterEventHandler<EventRoundPrestart>(OnRoundPrestart);
         RegisterEventHandler<EventRoundStart>(OnRoundStart);
         RegisterEventHandler<EventPlayerSpawn>(OnPlayerSpawn);
         AddCommandListener("say", OnClientSay, HookMode.Pre);
         AddCommandListener("say_team", OnClientSay, HookMode.Pre);
-        AddCommand("css_scenario", "Display the current scenario, roles, votes and economy.", OnScenarioCommand);
-        AddCommand("css_role", "Choose a CT role: t [long-defensive|banana-aggressive], apps, or b-solo.", OnRoleCommand);
-        AddCommand("css_tactic", "Vote: banana, second-mid, or mid-long.", OnTacticCommand);
+        AddCommand("css_scenario", "Display your team's scenario and economy.", OnScenarioCommand);
+        AddCommand("css_ily_tactic", "Open your team's tactic vote menu.", OnTacticCommand);
+        AddCommand("css_ily_ready", "Mark your team ready to end the freeze time.", OnReadyCommand);
+        AddCommand("css_ily_position", "Show your current map position for scenario JSON.", OnPositionCommand);
         AddCommand("css_ily_start", "Force the scenario to start without waiting for six players.", OnForceStartCommand);
     }
 
     private HookResult OnRoundPrestart(EventRoundPrestart gameEvent, GameEventInfo info)
     {
-        _ctRoles.Clear();
-        _terroristVotes.Clear();
+        _tacticVotes.Clear();
+        _selectedTactics.Clear();
+        _spawnAssignments.Clear();
         _roundEconomies.Clear();
         _teamReadyPlayers.Clear();
-        _winningPlan = null;
 
         var ctEconomyIndex = Random.Shared.Next(Economies.Length);
         var terroristEconomyIndex = Random.Shared.Next(Economies.Length - 1);
@@ -92,6 +131,7 @@ public sealed class ILYLeadYouPlugin : BasePlugin
         ApplyEconomy(CsTeam.CounterTerrorist);
         ApplyEconomy(CsTeam.Terrorist);
         ShowScenarioToPlayers();
+        Server.NextFrame(OpenTacticMenus);
         return HookResult.Continue;
     }
 
@@ -105,6 +145,20 @@ public sealed class ILYLeadYouPlugin : BasePlugin
                 if (player.IsValid && _roundEconomies.ContainsKey(player.Team))
                 {
                     ApplyEconomy(player);
+                    if (GetGameRules()?.FreezePeriod == true &&
+                        _selectedTactics.ContainsKey(CsTeam.CounterTerrorist) &&
+                        _selectedTactics.ContainsKey(CsTeam.Terrorist))
+                    {
+                        if (_spawnAssignments.TryGetValue(player.Team, out var assignments) &&
+                            assignments.TryGetValue(player.Slot, out var assignment))
+                        {
+                            TeleportToTacticalSpawn(player, assignment);
+                        }
+                        else
+                        {
+                            TryAssignTacticalSpawns();
+                        }
+                    }
                 }
             });
         }
@@ -131,13 +185,37 @@ public sealed class ILYLeadYouPlugin : BasePlugin
             return HookResult.Handled;
         }
 
-        if (message.Equals(".ready", StringComparison.OrdinalIgnoreCase))
+        return HookResult.Continue;
+    }
+
+    private void OnReadyCommand(CCSPlayerController? player, CommandInfo command)
+    {
+        if (player is { IsValid: true })
         {
             HandleReady(player);
-            return HookResult.Handled;
+        }
+    }
+
+    private void OnPositionCommand(CCSPlayerController? player, CommandInfo command)
+    {
+        if (player is not { IsValid: true })
+        {
+            return;
         }
 
-        return HookResult.Continue;
+        var pawn = player.PlayerPawn.Value;
+        var sceneNode = pawn?.CBodyComponent?.SceneNode;
+        if (pawn is null || !pawn.IsValid || sceneNode is null)
+        {
+            player.PrintToChat("Impossible de lire votre position actuelle.");
+            return;
+        }
+
+        var origin = sceneNode.AbsOrigin;
+        var angles = pawn.EyeAngles;
+        player.PrintToChat($"Carte: {Server.MapName}");
+        player.PrintToChat($"origin: {{\"x\":{FormatCoordinate(origin.X)},\"y\":{FormatCoordinate(origin.Y)},\"z\":{FormatCoordinate(origin.Z)}}}");
+        player.PrintToChat($"angles: {{\"pitch\":{FormatCoordinate(angles.X)},\"yaw\":{FormatCoordinate(angles.Y)},\"roll\":{FormatCoordinate(angles.Z)}}}");
     }
 
     private void HandleReady(CCSPlayerController player)
@@ -151,7 +229,13 @@ public sealed class ILYLeadYouPlugin : BasePlugin
         var gameRules = GetGameRules();
         if (gameRules is null || !gameRules.FreezePeriod)
         {
-            player.PrintToChat("La commande .ready est disponible pendant le freeze time.");
+            player.PrintToChat("La commande !ily_ready est disponible pendant le freeze time.");
+            return;
+        }
+
+        if (!_selectedTactics.ContainsKey(player.Team))
+        {
+            player.PrintToChat("Choisissez d'abord la tactique de votre équipe avec le menu !ily_tactic.");
             return;
         }
 
@@ -172,11 +256,104 @@ public sealed class ILYLeadYouPlugin : BasePlugin
 
     private bool IsTeamReady(CsTeam team) =>
         _teamReadyPlayers.TryGetValue(team, out var readyPlayerId) &&
-        GetPlayers(team).Any(player => player.SteamID == readyPlayerId);
+        GetHumanPlayers(team).Any(player => player.SteamID == readyPlayerId);
 
     private static CCSGameRules? GetGameRules() =>
         Utilities.FindAllEntitiesByDesignerName<CCSGameRulesProxy>("cs_gamerules")
             .FirstOrDefault()?.GameRules;
+
+    private void LoadTacticCatalogs()
+    {
+        var pluginDirectory = Path.GetDirectoryName(typeof(ILYLeadYouPlugin).Assembly.Location);
+        if (string.IsNullOrWhiteSpace(pluginDirectory))
+        {
+            Logger.LogError("Could not locate the plugin directory; tactic JSON files cannot be loaded.");
+            return;
+        }
+
+        var jsonOptions = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+        foreach (var (team, teamFolder) in new[]
+                 {
+                     (CsTeam.CounterTerrorist, "CT"),
+                     (CsTeam.Terrorist, "T")
+                 })
+        {
+            foreach (var economy in Economies)
+            {
+                var filePath = Path.Combine(
+                    pluginDirectory,
+                    "scenarios",
+                    teamFolder,
+                    economy.Tier.ToString(),
+                    "tactics.json");
+
+                if (!File.Exists(filePath))
+                {
+                    Logger.LogError("Tactic configuration is missing: {FilePath}", filePath);
+                    continue;
+                }
+
+                try
+                {
+                    var catalog = JsonSerializer.Deserialize<TacticCatalog>(File.ReadAllText(filePath), jsonOptions);
+                    if (catalog is null || !IsValidCatalog(catalog))
+                    {
+                        Logger.LogError("Tactic configuration is empty or invalid: {FilePath}", filePath);
+                        continue;
+                    }
+
+                    _tacticCatalogs[(team, economy.Tier)] = catalog.Tactics;
+                }
+                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
+                {
+                    Logger.LogError(exception, "Failed to load tactic configuration: {FilePath}", filePath);
+                }
+            }
+        }
+    }
+
+    private static bool IsValidCatalog(TacticCatalog catalog) =>
+        catalog.Tactics is { Count: > 0 } &&
+        catalog.Tactics.All(option => option is not null &&
+            !string.IsNullOrWhiteSpace(option.Id) &&
+            !option.Id.Any(char.IsWhiteSpace) &&
+            !string.IsNullOrWhiteSpace(option.Label) &&
+            !string.IsNullOrWhiteSpace(option.Map) &&
+            option.Positions is { Count: > 0 } &&
+            option.Positions.All(position =>
+                position is not null &&
+                position.Slot > 0 &&
+                !string.IsNullOrWhiteSpace(position.Zone) &&
+                !string.IsNullOrWhiteSpace(position.Instruction) &&
+                (position.Spawn is null || IsValidSpawn(position.Spawn))) &&
+            option.Positions.Select(position => position.Slot).Distinct().Count() == option.Positions.Count) &&
+        catalog.Tactics.All(option =>
+            option.Positions.Where(position => position.Spawn is not null)
+                .Select(position => GetSpawnLocation(position.Spawn!.Origin))
+                .Distinct()
+                .Count() == option.Positions.Count(position => position.Spawn is not null)) &&
+        catalog.Tactics.Select(option => option.Id)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Count() == catalog.Tactics.Count;
+
+    private static bool IsValidSpawn(TacticalSpawn spawn) =>
+        spawn.Origin is not null &&
+        spawn.Angles is not null &&
+        float.IsFinite(spawn.Origin.X) &&
+        float.IsFinite(spawn.Origin.Y) &&
+        float.IsFinite(spawn.Origin.Z) &&
+        float.IsFinite(spawn.Angles.Pitch) &&
+        float.IsFinite(spawn.Angles.Yaw) &&
+        float.IsFinite(spawn.Angles.Roll);
+
+    private static SpawnLocation GetSpawnLocation(SpawnOrigin origin) =>
+        new(origin.X, origin.Y, origin.Z);
+
+    private List<TacticalOption> GetAvailableTactics(CsTeam team) =>
+        _roundEconomies.TryGetValue(team, out var economy) &&
+        _tacticCatalogs.TryGetValue((team, economy), out var tactics)
+            ? tactics
+            : [];
 
     private void OnScenarioCommand(CCSPlayerController? player, CommandInfo command)
     {
@@ -194,121 +371,278 @@ public sealed class ILYLeadYouPlugin : BasePlugin
         CounterStrikeSharp.API.Server.ExecuteCommand("mp_warmup_end");
     }
     
-    private void OnRoleCommand(CCSPlayerController? player, CommandInfo command)
-    {
-        if (!IsPlayingFor(player, CsTeam.CounterTerrorist))
-        {
-            return;
-        }
-
-        if (command.ArgCount < 2)
-        {
-            player!.PrintToChat("Usage: !role t [long-defensive|banana-aggressive] | apps | b-solo");
-            return;
-        }
-
-        var roleName = command.GetArg(1).ToLowerInvariant();
-        var subRole = command.ArgCount > 2 ? command.GetArg(2).ToLowerInvariant() : null;
-        if (!TryParseRole(roleName, subRole, out var assignment))
-        {
-            player!.PrintToChat("Role invalide. T: !role t long-defensive|banana-aggressive; autres: !role apps|b-solo");
-            return;
-        }
-
-        var playerId = player!.SteamID;
-        if (_ctRoles.Any(entry => entry.Key != playerId && entry.Value.Role == assignment.Role))
-        {
-            player.PrintToChat("Ce rôle est déjà attribué à un autre CT.");
-            return;
-        }
-
-        _ctRoles[playerId] = assignment;
-        BroadcastToTeam(CsTeam.CounterTerrorist, $"{WebUtility.HtmlEncode(player.PlayerName)} choisit {FormatRole(assignment)}.");
-        ShowScenarioToPlayers();
-    }
-
     private void OnTacticCommand(CCSPlayerController? player, CommandInfo command)
     {
-        if (!IsPlayingFor(player, CsTeam.Terrorist))
+        if (player is null || !player.IsValid ||
+            (player.Team != CsTeam.CounterTerrorist && player.Team != CsTeam.Terrorist))
+        {
+            player?.PrintToChat("Cette commande est réservée aux CT et aux Terros.");
+            return;
+        }
+
+        OpenTacticMenu(player);
+    }
+
+    private void OpenTacticMenus()
+    {
+        foreach (var team in new[] { CsTeam.CounterTerrorist, CsTeam.Terrorist })
+        {
+            foreach (var player in GetHumanPlayers(team))
+            {
+                OpenTacticMenu(player);
+            }
+        }
+    }
+
+    private void OpenTacticMenu(CCSPlayerController player)
+    {
+        if (GetGameRules()?.FreezePeriod != true)
+        {
+            player.PrintToChat("Le choix de tactique est disponible pendant le freeze time.");
+            return;
+        }
+
+        var options = GetAvailableTactics(player.Team);
+        if (options.Count == 0)
+        {
+            player.PrintToChat("Aucune tactique n'est configurée pour l'économie de votre équipe.");
+            return;
+        }
+
+        var economy = _roundEconomies[player.Team];
+        var menu = new CenterHtmlMenu($"Tactique {economy}", this)
+        {
+            PostSelectAction = PostSelectAction.Close
+        };
+
+        foreach (var option in options)
+        {
+            menu.AddMenuOption($"{option.Label} ({option.Id})",
+                (selectedPlayer, _) => RecordTacticVote(selectedPlayer, option.Id));
+        }
+
+        menu.Open(player);
+    }
+
+    private void RecordTacticVote(CCSPlayerController player, string tacticId)
+    {
+        if (!player.IsValid ||
+            (player.Team != CsTeam.CounterTerrorist && player.Team != CsTeam.Terrorist))
         {
             return;
         }
 
-        if (command.ArgCount < 2 || !TryParsePlan(command.GetArg(1), out var plan))
+        if (GetGameRules()?.FreezePeriod != true)
         {
-            player!.PrintToChat("Vote: !tactic banana | second-mid | mid-long");
+            player.PrintToChat("Le vote est fermé: le freeze time est terminé.");
             return;
         }
 
-        _terroristVotes[player!.SteamID] = plan;
-        var teamPlayers = GetPlayers(CsTeam.Terrorist);
-        if (teamPlayers.Count >= 3 && teamPlayers.All(member => _terroristVotes.ContainsKey(member.SteamID)))
+        var options = GetAvailableTactics(player.Team);
+        var selectedOption = options.FirstOrDefault(option =>
+            option.Id.Equals(tacticId, StringComparison.OrdinalIgnoreCase));
+        if (selectedOption is null)
         {
-            var leadingPlan = _terroristVotes.Values
-                .GroupBy(vote => vote)
+            player.PrintToChat("Ce choix n'est plus disponible; rouvrez le menu avec !ily_tactic.");
+            return;
+        }
+
+        if (!_tacticVotes.TryGetValue(player.Team, out var votes))
+        {
+            votes = [];
+            _tacticVotes[player.Team] = votes;
+        }
+
+        votes[player.SteamID] = selectedOption.Id;
+        var teamPlayers = GetHumanPlayers(player.Team);
+        var voteCount = teamPlayers.Count(member => votes.ContainsKey(member.SteamID));
+        if (teamPlayers.Count > 0 && voteCount == teamPlayers.Count)
+        {
+            var leadingVote = teamPlayers
+                .GroupBy(member => votes[member.SteamID], StringComparer.OrdinalIgnoreCase)
                 .OrderByDescending(group => group.Count())
                 .First();
 
-            if (leadingPlan.Count() > teamPlayers.Count / 2)
+            if (leadingVote.Count() > teamPlayers.Count / 2)
             {
-                _winningPlan = leadingPlan.Key;
-                BroadcastToTeam(CsTeam.Terrorist, $"Plan Terro retenu: {FormatPlan(_winningPlan.Value)}.");
+                var winner = options.First(option =>
+                    option.Id.Equals(leadingVote.Key, StringComparison.OrdinalIgnoreCase));
+                var changed = !_selectedTactics.TryGetValue(player.Team, out var previous) ||
+                    !previous.Id.Equals(winner.Id, StringComparison.OrdinalIgnoreCase);
+                _selectedTactics[player.Team] = winner;
+                if (changed)
+                {
+                    _spawnAssignments.Clear();
+                    TryAssignTacticalSpawns();
+                }
+
+                BroadcastToTeam(player.Team, $"Tactique retenue: {winner.Label}.");
             }
             else
             {
-                _terroristVotes.Clear();
-                BroadcastToTeam(CsTeam.Terrorist, "Égalité: revote nécessaire pour choisir le plan Terro.");
+                votes.Clear();
+                _selectedTactics.Remove(player.Team);
+                _spawnAssignments.Clear();
+                BroadcastToTeam(player.Team, "Égalité: revote nécessaire pour choisir la tactique.");
             }
         }
         else
         {
-            BroadcastToTeam(CsTeam.Terrorist, $"Vote enregistré ({_terroristVotes.Count}/{teamPlayers.Count}).");
+            BroadcastToTeam(player.Team, $"Vote enregistré ({voteCount}/{teamPlayers.Count}).");
         }
 
         ShowScenarioToPlayers();
     }
 
-    private static bool TryParseRole(string roleName, string? subRole, out RoleAssignment assignment)
+    private bool TryAssignTacticalSpawns()
     {
-        assignment = roleName switch
+        if (GetGameRules()?.FreezePeriod != true)
         {
-            "t" when subRole == "long-defensive" => new RoleAssignment(CtRole.T, "Long défensif — tenir la zone ou reculer"),
-            "t" when subRole == "banana-aggressive" => new RoleAssignment(CtRole.T, "Banane agressive — tenir la zone ou avancer"),
-            "apps" when subRole is null => new RoleAssignment(CtRole.Apps, null),
-            "b-solo" when subRole is null => new RoleAssignment(CtRole.BSolo, null),
-            _ => null!
-        };
-        return assignment is not null;
-    }
-
-    private static bool TryParsePlan(string choice, out TerroristPlan plan)
-    {
-        plan = choice.ToLowerInvariant() switch
-        {
-            "banana" => TerroristPlan.BananaSlow,
-            "second-mid" => TerroristPlan.SecondMidAppsA,
-            "mid-long" => TerroristPlan.MidLongA,
-            _ => (TerroristPlan)(-1)
-        };
-        return Enum.IsDefined(plan);
-    }
-
-    private bool IsPlayingFor(CCSPlayerController? player, CsTeam team)
-    {
-        if (player is null || !player.IsValid || player.Team != team)
-        {
-            player?.PrintToChat(team == CsTeam.CounterTerrorist
-                ? "Cette commande est réservée aux CT."
-                : "Cette commande est réservée aux Terros.");
             return false;
         }
 
+        var teams = new[] { CsTeam.CounterTerrorist, CsTeam.Terrorist };
+        if (teams.Any(team => !_selectedTactics.ContainsKey(team)))
+        {
+            return false;
+        }
+
+        var playersByTeam = teams.ToDictionary(team => team, GetPlayers);
+        foreach (var team in teams)
+        {
+            var tactic = _selectedTactics[team];
+            if (!tactic.Map.Equals(Server.MapName, StringComparison.OrdinalIgnoreCase))
+            {
+                BroadcastToTeam(team, $"Les positions de cette tactique sont prévues pour {tactic.Map}, pas {Server.MapName}.");
+                Logger.LogWarning("Cannot place {Team} players: tactic {TacticId} is for map {TacticMap}, current map is {CurrentMap}.",
+                    team, tactic.Id, tactic.Map, Server.MapName);
+                return false;
+            }
+
+            var availableSpawnCount = tactic.Positions.Count(position => position.Spawn is not null);
+            if (availableSpawnCount < playersByTeam[team].Count)
+            {
+                BroadcastToTeam(team, $"Positions insuffisantes: {availableSpawnCount} configurée(s) pour {playersByTeam[team].Count} joueur(s).");
+                Logger.LogWarning("Not enough spawn points for {Team} tactic {TacticId}: {SpawnCount} points for {PlayerCount} players.",
+                    team, tactic.Id, availableSpawnCount, playersByTeam[team].Count);
+                return false;
+            }
+        }
+
+        Dictionary<CsTeam, Dictionary<int, TacticalPosition>>? assignments = null;
+        for (var attempt = 0; attempt < 64 && assignments is null; attempt++)
+        {
+            var occupiedPositions = new HashSet<SpawnLocation>();
+            var candidateAssignments = new Dictionary<CsTeam, Dictionary<int, TacticalPosition>>();
+            var teamOrder = teams.ToList();
+            Shuffle(teamOrder);
+            var validAssignment = true;
+
+            foreach (var team in teamOrder)
+            {
+                if (playersByTeam[team].Count == 0)
+                {
+                    candidateAssignments[team] = [];
+                    continue;
+                }
+
+                var candidates = _selectedTactics[team].Positions
+                    .Where(position => position.Spawn is not null)
+                    .ToList();
+                Shuffle(candidates);
+
+                var selectedPositions = new List<TacticalPosition>();
+                foreach (var candidate in candidates)
+                {
+                    if (occupiedPositions.Add(GetSpawnLocation(candidate.Spawn!.Origin)))
+                    {
+                        selectedPositions.Add(candidate);
+                    }
+
+                    if (selectedPositions.Count == playersByTeam[team].Count)
+                    {
+                        break;
+                    }
+                }
+
+                if (selectedPositions.Count != playersByTeam[team].Count)
+                {
+                    validAssignment = false;
+                    break;
+                }
+
+                var players = playersByTeam[team].ToList();
+                Shuffle(players);
+                candidateAssignments[team] = players
+                    .Select((player, index) => (PlayerSlot: player.Slot, Position: selectedPositions[index]))
+                    .ToDictionary(assignment => assignment.PlayerSlot, assignment => assignment.Position);
+            }
+
+            if (validAssignment)
+            {
+                assignments = candidateAssignments;
+            }
+        }
+
+        if (assignments is null)
+        {
+            Broadcast("Positions incompatibles: vérifiez qu'aucune position T et CT ne partage les mêmes coordonnées.");
+            Logger.LogWarning("Could not assign unique spawn coordinates to both teams; check the selected tactic JSON files.");
+            return false;
+        }
+
+        _spawnAssignments.Clear();
+        foreach (var team in teams)
+        {
+            _spawnAssignments[team] = assignments[team];
+            foreach (var player in playersByTeam[team])
+            {
+                if (assignments[team].TryGetValue(player.Slot, out var position))
+                {
+                    TeleportToTacticalSpawn(player, position);
+                }
+            }
+
+            BroadcastToTeam(team, "Positions de départ attribuées aléatoirement sans doublon.");
+        }
+
+        return true;
+    }
+
+    private static void Shuffle<T>(List<T> values)
+    {
+        for (var index = values.Count - 1; index > 0; index--)
+        {
+            var otherIndex = Random.Shared.Next(index + 1);
+            (values[index], values[otherIndex]) = (values[otherIndex], values[index]);
+        }
+    }
+
+    private static bool TeleportToTacticalSpawn(CCSPlayerController player, TacticalPosition position)
+    {
+        if (!player.IsValid ||
+            position.Spawn is not { Origin: not null, Angles: not null } spawn ||
+            player.PlayerPawn.Value is not { IsValid: true } pawn)
+        {
+            return false;
+        }
+
+        pawn.Teleport(
+            new Vector(spawn.Origin.X, spawn.Origin.Y, spawn.Origin.Z),
+            new QAngle(spawn.Angles.Pitch, spawn.Angles.Yaw, spawn.Angles.Roll),
+            new Vector(0, 0, 0));
+        player.PrintToChat($"Votre position de départ: slot {position.Slot} - {position.Zone}.");
         return true;
     }
 
     private static List<CCSPlayerController> GetPlayers(CsTeam team) =>
         Utilities.GetPlayers()
             .Where(player => player.IsValid && player.Team == team)
+            .ToList();
+
+    private static List<CCSPlayerController> GetHumanPlayers(CsTeam team) =>
+        GetPlayers(team)
+            .Where(player => !player.IsBot && !player.IsHLTV)
             .ToList();
 
     private void ApplyEconomy(CsTeam team)
@@ -357,58 +691,47 @@ public sealed class ILYLeadYouPlugin : BasePlugin
             : "En attente";
         player.PrintToChat("ILY — Inferno 3v3");
         player.PrintToChat($"Économie: {economy}");
-        if (player.Team == CsTeam.CounterTerrorist)
+        if (player.Team == CsTeam.CounterTerrorist || player.Team == CsTeam.Terrorist)
         {
-            var roles = string.Join(" | ", Enum.GetValues<CtRole>().Select(role =>
-                _ctRoles.Values.FirstOrDefault(assignment => assignment.Role == role) is { } selected
-                    ? FormatRole(selected)
-                    : $"{FormatRoleName(role)}: à choisir"));
-            player.PrintToChat($"Rôles CT: {roles}");
-            player.PrintToChat("Commandes: !scenario | !ily_start | CT: !role t long-defensive|banana-aggressive, !role apps, !role b-solo");
-        }
-        else if (player.Team == CsTeam.Terrorist)
-        {
-            var plan = _winningPlan is { } winner
-                ? FormatPlan(winner)
-                : $"vote en cours ({_terroristVotes.Count}/3)";
-            player.PrintToChat($"Plan Terro: {plan}");
-            player.PrintToChat("Commandes: !scenario | !ily_start | Terros: !tactic banana|second-mid|mid-long");
+            ShowTeamTactic(player, player.Team);
+            player.PrintToChat("Commandes: !scenario | .info | !ily_tactic | !ily_ready | !ily_position | !ily_start");
         }
         else
         {
             player.PrintToChat("Les informations tactiques sont réservées aux joueurs de chaque équipe.");
-            player.PrintToChat("Commandes: !scenario | !ily_start");
+            player.PrintToChat("Commandes: !scenario | .info | !ily_start");
         }
 
         player.PrintToChat("Cartes: Inferno, Anubis | Choix: Cache, Dust 2, Ancient | Autres: Overpass, Vertigo, Mirage...");
     }
 
-    private static string FormatRole(RoleAssignment assignment) =>
-        assignment.Role switch
+    private void ShowTeamTactic(CCSPlayerController player, CsTeam team)
+    {
+        var options = GetAvailableTactics(team);
+        if (options.Count == 0)
         {
-            CtRole.T => $"T — {assignment.SubRole}",
-            CtRole.Apps => "Apps",
-            CtRole.BSolo => "B solo",
-            _ => assignment.Role.ToString()
-        };
+            player.PrintToChat("Aucune tactique n'est configurée pour cette équipe et son économie.");
+            return;
+        }
 
-    private static string FormatRoleName(CtRole role) =>
-        role switch
+        if (_selectedTactics.TryGetValue(team, out var selected))
         {
-            CtRole.T => "T",
-            CtRole.Apps => "Apps",
-            CtRole.BSolo => "B solo",
-            _ => role.ToString()
-        };
+            player.PrintToChat($"Tactique choisie: {selected.Label} ({selected.Id})");
+            foreach (var position in selected.Positions)
+            {
+                player.PrintToChat($"{position.Slot}. {position.Zone}: {position.Instruction}");
+            }
 
-    private static string FormatPlan(TerroristPlan plan) =>
-        plan switch
-        {
-            TerroristPlan.BananaSlow => "Banane slow + CPL",
-            TerroristPlan.SecondMidAppsA => "2nd mid vers Apps A",
-            TerroristPlan.MidLongA => "Mid vers long A",
-            _ => plan.ToString()
-        };
+            return;
+        }
+
+        var players = GetHumanPlayers(team);
+        var voteCount = _tacticVotes.TryGetValue(team, out var votes)
+            ? players.Count(member => votes.ContainsKey(member.SteamID))
+            : 0;
+        player.PrintToChat($"Tactique à choisir — votes: {voteCount}/{players.Count}");
+        player.PrintToChat($"Choix pour l'économie actuelle: {string.Join(" | ", options.Select(option => $"{option.Id}: {option.Label}"))}");
+    }
 
     private void BroadcastToTeam(CsTeam team, string message)
     {
@@ -425,4 +748,7 @@ public sealed class ILYLeadYouPlugin : BasePlugin
             player.PrintToChat(message);
         }
     }
+
+    private static string FormatCoordinate(float value) =>
+        value.ToString("0.###", CultureInfo.InvariantCulture);
 }
