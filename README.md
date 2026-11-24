@@ -16,6 +16,8 @@ Le serveur doit avoir CounterStrikeSharp et son runtime .NET 10 installés.
 
 ## Commandes joueurs
 
+- `!forcestart` — termine immédiatement la warmup et lance le scénario, même
+  si les six joueurs ne sont pas présents.
 - `!scenario` — affiche dans le chat l'économie, les rôles CT, le vote, les
   cartes envisagées et les commandes disponibles. Le récapitulatif reste dans
   l'historique du chat au lieu de disparaître comme un message au centre de
