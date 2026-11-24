@@ -54,10 +54,10 @@ public sealed class ILYLeadYouPlugin : BasePlugin
     private readonly Dictionary<CsTeam, EconomyTier> _roundEconomies = [];
     private readonly Dictionary<CsTeam, ulong> _teamReadyPlayers = [];
 
-    public override string ModuleName => "ILY Lead You";
+    public override string ModuleName => "I Lead You";
     public override string ModuleVersion => "1.0.0";
     public override string ModuleAuthor => "Driw0x";
-    public override string ModuleDescription => "Inferno 3v3 tactical scenario and economy manager";
+    public override string ModuleDescription => "3v3 tactical scenario and economy manager";
 
     public override void Load(bool hotReload)
     {
@@ -259,13 +259,20 @@ public sealed class ILYLeadYouPlugin : BasePlugin
                     try
                     {
                         var catalog = JsonSerializer.Deserialize<TacticCatalog>(File.ReadAllText(filePath), jsonOptions);
-                        if (catalog is null || !IsValidCatalog(catalog, mapName))
+                        if (catalog is null || !IsValidCatalog(catalog))
                         {
                             Logger.LogError("Tactic configuration is empty or invalid for map {Map}: {FilePath}", mapName, filePath);
                             continue;
                         }
 
-                        _tacticCatalogs[(mapName.ToLowerInvariant(), team, economy.Tier)] = catalog.Tactics;
+                        var normalizedMapName = NormalizeMapName(mapName);
+                        _tacticCatalogs[(normalizedMapName, team, economy.Tier)] = catalog.Tactics;
+                        Logger.LogInformation(
+                            "Loaded {TacticCount} tactics for {Map}/{Team}/{Economy}.",
+                            catalog.Tactics.Count,
+                            normalizedMapName,
+                            team,
+                            economy.Tier);
                     }
                     catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
                     {
@@ -276,13 +283,12 @@ public sealed class ILYLeadYouPlugin : BasePlugin
         }
     }
 
-    private static bool IsValidCatalog(TacticCatalog catalog, string mapName) =>
+    private static bool IsValidCatalog(TacticCatalog catalog) =>
         catalog.Tactics is { Count: > 0 } &&
         catalog.Tactics.All(option => option is not null &&
             !string.IsNullOrWhiteSpace(option.Id) &&
             !option.Id.Any(char.IsWhiteSpace) &&
             !string.IsNullOrWhiteSpace(option.Label) &&
-            string.Equals(option.Map, mapName, StringComparison.OrdinalIgnoreCase) &&
             option.Positions is { Count: > 0 } &&
             option.Positions.All(position =>
                 position is not null &&
@@ -296,9 +302,26 @@ public sealed class ILYLeadYouPlugin : BasePlugin
 
     private List<TacticalOption> GetAvailableTactics(CsTeam team) =>
         _roundEconomies.TryGetValue(team, out var economy) &&
-        _tacticCatalogs.TryGetValue((Server.MapName.ToLowerInvariant(), team, economy), out var tactics)
+        _tacticCatalogs.TryGetValue((NormalizeMapName(Server.MapName), team, economy), out var tactics)
             ? tactics
             : [];
+
+    private static string NormalizeMapName(string mapName)
+    {
+        var normalized = mapName.Replace('\\', '/').TrimEnd('/');
+        var lastSeparator = normalized.LastIndexOf('/');
+        if (lastSeparator >= 0)
+        {
+            normalized = normalized[(lastSeparator + 1)..];
+        }
+
+        if (normalized.EndsWith(".bsp", StringComparison.OrdinalIgnoreCase))
+        {
+            normalized = normalized[..^4];
+        }
+
+        return normalized.ToLowerInvariant();
+    }
 
     private void OnForceStartCommand(CCSPlayerController? player, CommandInfo command)
     {
@@ -502,7 +525,12 @@ public sealed class ILYLeadYouPlugin : BasePlugin
         var options = GetAvailableTactics(team);
         if (options.Count == 0)
         {
-            player.PrintToChat("Aucune tactique n'est configurée pour cette équipe et son économie.");
+            var sideFolder = team == CsTeam.CounterTerrorist ? "CT" : "T";
+            var economyFolder = _roundEconomies.TryGetValue(team, out var economy)
+                ? economy.ToString()
+                : "Eco inconnue";
+            player.PrintToChat(
+                $"Aucune tactique pour {NormalizeMapName(Server.MapName)}/{sideFolder}/{economyFolder}.");
             return;
         }
 
