@@ -54,10 +54,11 @@ public sealed class ILYLeadYouPlugin : BasePlugin
     {
         RegisterEventHandler<EventRoundPrestart>(OnRoundPrestart);
         RegisterEventHandler<EventRoundStart>(OnRoundStart);
+        RegisterEventHandler<EventPlayerSpawn>(OnPlayerSpawn);
         AddCommand("css_scenario", "Display the current scenario, roles, votes and economy.", OnScenarioCommand);
         AddCommand("css_role", "Choose a CT role: t [long-defensive|banana-aggressive], apps, or b-solo.", OnRoleCommand);
         AddCommand("css_tactic", "Vote: banana, second-mid, or mid-long.", OnTacticCommand);
-        AddCommand("css_forcestart", "Force the scenario to start without waiting for six players.", OnForceStartCommand);
+        AddCommand("css_ily_start", "Force the scenario to start without waiting for six players.", OnForceStartCommand);
     }
 
     private HookResult OnRoundPrestart(EventRoundPrestart gameEvent, GameEventInfo info)
@@ -67,26 +68,43 @@ public sealed class ILYLeadYouPlugin : BasePlugin
         _roundEconomies.Clear();
         _winningPlan = null;
 
-        foreach (var team in new[] { CsTeam.CounterTerrorist, CsTeam.Terrorist })
+        var ctEconomyIndex = Random.Shared.Next(Economies.Length);
+        var terroristEconomyIndex = Random.Shared.Next(Economies.Length - 1);
+        if (terroristEconomyIndex >= ctEconomyIndex)
         {
-            var economy = Economies[Random.Shared.Next(Economies.Length)];
-            _roundEconomies[team] = economy.Tier;
-
-            foreach (var player in GetPlayers(team))
-            {
-                if (player.InGameMoneyServices is not null)
-                {
-                    player.InGameMoneyServices.Account = economy.Cash;
-                }
-            }
+            terroristEconomyIndex++;
         }
+
+        _roundEconomies[CsTeam.CounterTerrorist] = Economies[ctEconomyIndex].Tier;
+        _roundEconomies[CsTeam.Terrorist] = Economies[terroristEconomyIndex].Tier;
+        ApplyEconomy(CsTeam.CounterTerrorist);
+        ApplyEconomy(CsTeam.Terrorist);
 
         return HookResult.Continue;
     }
 
     private HookResult OnRoundStart(EventRoundStart gameEvent, GameEventInfo info)
     {
+        ApplyEconomy(CsTeam.CounterTerrorist);
+        ApplyEconomy(CsTeam.Terrorist);
         ShowScenarioToPlayers();
+        return HookResult.Continue;
+    }
+
+    private HookResult OnPlayerSpawn(EventPlayerSpawn gameEvent, GameEventInfo info)
+    {
+        var player = gameEvent.Userid;
+        if (player is not null && _roundEconomies.ContainsKey(player.Team))
+        {
+            Server.NextFrame(() =>
+            {
+                if (player.IsValid && _roundEconomies.ContainsKey(player.Team))
+                {
+                    ApplyEconomy(player);
+                }
+            });
+        }
+
         return HookResult.Continue;
     }
 
@@ -102,7 +120,7 @@ public sealed class ILYLeadYouPlugin : BasePlugin
 
     private void OnForceStartCommand(CCSPlayerController? player, CommandInfo command)
     {
-        player?.PrintToChat("Démarrage forcé du scénario.");
+        player?.PrintToChat("Démarrage forcé du scénario (!ily_start).");
         CounterStrikeSharp.API.Server.ExecuteCommand("mp_warmup_end");
     }
     
@@ -135,7 +153,7 @@ public sealed class ILYLeadYouPlugin : BasePlugin
         }
 
         _ctRoles[playerId] = assignment;
-        Broadcast($"{WebUtility.HtmlEncode(player.PlayerName)} choisit {FormatRole(assignment)}.");
+        BroadcastToTeam(CsTeam.CounterTerrorist, $"{WebUtility.HtmlEncode(player.PlayerName)} choisit {FormatRole(assignment)}.");
         ShowScenarioToPlayers();
     }
 
@@ -164,17 +182,17 @@ public sealed class ILYLeadYouPlugin : BasePlugin
             if (leadingPlan.Count() > teamPlayers.Count / 2)
             {
                 _winningPlan = leadingPlan.Key;
-                Broadcast($"Plan Terro retenu: {FormatPlan(_winningPlan.Value)}.");
+                BroadcastToTeam(CsTeam.Terrorist, $"Plan Terro retenu: {FormatPlan(_winningPlan.Value)}.");
             }
             else
             {
                 _terroristVotes.Clear();
-                Broadcast("Égalité: revote nécessaire pour choisir le plan Terro.");
+                BroadcastToTeam(CsTeam.Terrorist, "Égalité: revote nécessaire pour choisir le plan Terro.");
             }
         }
         else
         {
-            Broadcast($"Vote enregistré ({_terroristVotes.Count}/{teamPlayers.Count}).");
+            BroadcastToTeam(CsTeam.Terrorist, $"Vote enregistré ({_terroristVotes.Count}/{teamPlayers.Count}).");
         }
 
         ShowScenarioToPlayers();
@@ -223,6 +241,37 @@ public sealed class ILYLeadYouPlugin : BasePlugin
             .Where(player => player.IsValid && player.Team == team)
             .ToList();
 
+    private void ApplyEconomy(CsTeam team)
+    {
+        if (!_roundEconomies.TryGetValue(team, out var tier))
+        {
+            return;
+        }
+
+        var cash = Economies.First(economy => economy.Tier == tier).Cash;
+        foreach (var player in GetPlayers(team))
+        {
+            ApplyEconomy(player, cash);
+        }
+    }
+
+    private void ApplyEconomy(CCSPlayerController player)
+    {
+        if (_roundEconomies.TryGetValue(player.Team, out var tier))
+        {
+            var cash = Economies.First(economy => economy.Tier == tier).Cash;
+            ApplyEconomy(player, cash);
+        }
+    }
+
+    private static void ApplyEconomy(CCSPlayerController player, int cash)
+    {
+        if (player.InGameMoneyServices is not null)
+        {
+            player.InGameMoneyServices.Account = cash;
+        }
+    }
+
     private void ShowScenarioToPlayers()
     {
         foreach (var player in Utilities.GetPlayers().Where(player => player.IsValid))
@@ -234,21 +283,34 @@ public sealed class ILYLeadYouPlugin : BasePlugin
     private void ShowScenario(CCSPlayerController player)
     {
         var economy = _roundEconomies.TryGetValue(player.Team, out var tier)
-            ? tier.ToString()
+            ? $"{tier} ({Economies.First(entry => entry.Tier == tier).Cash}$)"
             : "En attente";
-        var roles = string.Join(" | ", Enum.GetValues<CtRole>().Select(role =>
-            _ctRoles.Values.FirstOrDefault(assignment => assignment.Role == role) is { } selected
-                ? FormatRole(selected)
-                : $"{FormatRoleName(role)}: à choisir"));
-        var plan = _winningPlan is { } winner
-            ? FormatPlan(winner)
-            : $"vote en cours ({_terroristVotes.Count}/3)";
         player.PrintToChat("ILY — Inferno 3v3");
         player.PrintToChat($"Économie: {economy}");
-        player.PrintToChat($"Rôles CT: {roles}");
-        player.PrintToChat($"Plan Terro: {plan}");
+        if (player.Team == CsTeam.CounterTerrorist)
+        {
+            var roles = string.Join(" | ", Enum.GetValues<CtRole>().Select(role =>
+                _ctRoles.Values.FirstOrDefault(assignment => assignment.Role == role) is { } selected
+                    ? FormatRole(selected)
+                    : $"{FormatRoleName(role)}: à choisir"));
+            player.PrintToChat($"Rôles CT: {roles}");
+            player.PrintToChat("Commandes: !scenario | !ily_start | CT: !role t long-defensive|banana-aggressive, !role apps, !role b-solo");
+        }
+        else if (player.Team == CsTeam.Terrorist)
+        {
+            var plan = _winningPlan is { } winner
+                ? FormatPlan(winner)
+                : $"vote en cours ({_terroristVotes.Count}/3)";
+            player.PrintToChat($"Plan Terro: {plan}");
+            player.PrintToChat("Commandes: !scenario | !ily_start | Terros: !tactic banana|second-mid|mid-long");
+        }
+        else
+        {
+            player.PrintToChat("Les informations tactiques sont réservées aux joueurs de chaque équipe.");
+            player.PrintToChat("Commandes: !scenario | !ily_start");
+        }
+
         player.PrintToChat("Cartes: Inferno, Anubis | Choix: Cache, Dust 2, Ancient | Autres: Overpass, Vertigo, Mirage...");
-        player.PrintToChat("Commandes: !scenario | !forcestart | CT: !role t long-defensive|banana-aggressive, !role apps, !role b-solo | Terros: !tactic banana|second-mid|mid-long");
     }
 
     private static string FormatRole(RoleAssignment assignment) =>
@@ -278,9 +340,9 @@ public sealed class ILYLeadYouPlugin : BasePlugin
             _ => plan.ToString()
         };
 
-    private void Broadcast(string message)
+    private void BroadcastToTeam(CsTeam team, string message)
     {
-        foreach (var player in Utilities.GetPlayers().Where(player => player.IsValid))
+        foreach (var player in GetPlayers(team))
         {
             player.PrintToChat(message);
         }
