@@ -48,7 +48,7 @@ public sealed class ILYLeadYouPlugin : BasePlugin
         (EconomyTier.Eco, 800)
     ];
 
-    private readonly Dictionary<(CsTeam Team, EconomyTier Tier), List<TacticalOption>> _tacticCatalogs = [];
+    private readonly Dictionary<(string Map, CsTeam Team, EconomyTier Tier), List<TacticalOption>> _tacticCatalogs = [];
     private readonly Dictionary<CsTeam, Dictionary<ulong, string>> _tacticVotes = [];
     private readonly Dictionary<CsTeam, TacticalOption> _selectedTactics = [];
     private readonly Dictionary<CsTeam, EconomyTier> _roundEconomies = [];
@@ -67,9 +67,8 @@ public sealed class ILYLeadYouPlugin : BasePlugin
         RegisterEventHandler<EventPlayerSpawn>(OnPlayerSpawn);
         AddCommandListener("say", OnClientSay, HookMode.Pre);
         AddCommandListener("say_team", OnClientSay, HookMode.Pre);
-        AddCommand("css_scenario", "Display your team's scenario and economy.", OnScenarioCommand);
         AddCommand("css_ily_tactic", "Open your team's tactic vote menu.", OnTacticCommand);
-        AddCommand("css_ily_ready", "Mark your team ready to end the freeze time.", OnReadyCommand);
+        AddCommand("css_ily_ready", "Mark your team ready before starting the ILY match.", OnReadyCommand);
         AddCommand("css_ily_start", "Force the scenario to start without waiting for six players.", OnForceStartCommand);
     }
 
@@ -134,9 +133,22 @@ public sealed class ILYLeadYouPlugin : BasePlugin
             message = message[1..^1].Trim();
         }
 
-        if (message.Equals(".info", StringComparison.OrdinalIgnoreCase))
+        if (message.Equals(".info", StringComparison.OrdinalIgnoreCase) ||
+            message.Equals("!info", StringComparison.OrdinalIgnoreCase))
         {
             ShowScenario(player);
+            return HookResult.Handled;
+        }
+
+        // Route ready aliases through ILY instead of MatchZy's chat handler.
+        if (message.Equals("!ready", StringComparison.OrdinalIgnoreCase) ||
+            message.Equals(".ready", StringComparison.OrdinalIgnoreCase) ||
+            message.Equals("!r", StringComparison.OrdinalIgnoreCase) ||
+            message.Equals(".r", StringComparison.OrdinalIgnoreCase) ||
+            message.Equals("!ily_ready", StringComparison.OrdinalIgnoreCase) ||
+            message.Equals(".ily_ready", StringComparison.OrdinalIgnoreCase))
+        {
+            HandleReady(player);
             return HookResult.Handled;
         }
 
@@ -160,15 +172,9 @@ public sealed class ILYLeadYouPlugin : BasePlugin
         }
 
         var gameRules = GetGameRules();
-        if (gameRules is null || !gameRules.FreezePeriod)
+        if (gameRules is null || !gameRules.WarmupPeriod)
         {
-            player.PrintToChat("La commande !ily_ready est disponible pendant le freeze time.");
-            return;
-        }
-
-        if (!_selectedTactics.ContainsKey(player.Team))
-        {
-            player.PrintToChat("Choisissez d'abord la tactique de votre équipe avec le menu !ily_tactic.");
+            player.PrintToChat("La commande ready est disponible avant le match, pendant le warmup.");
             return;
         }
 
@@ -182,9 +188,7 @@ public sealed class ILYLeadYouPlugin : BasePlugin
             return;
         }
 
-        gameRules.GameStartTime = Server.CurrentTime;
-        gameRules.FreezePeriod = false;
-        Broadcast("Les deux équipes sont prêtes, la manche commence !");
+        StartMatchAfterReady();
     }
 
     private bool IsTeamReady(CsTeam team) =>
@@ -204,54 +208,81 @@ public sealed class ILYLeadYouPlugin : BasePlugin
             return;
         }
 
+        var scenariosDirectory = Path.Combine(pluginDirectory, "scenarios");
+        if (!Directory.Exists(scenariosDirectory))
+        {
+            Logger.LogError("Scenario directory does not exist: {Directory}", scenariosDirectory);
+            return;
+        }
+
+        string[] mapDirectories;
+        try
+        {
+            mapDirectories = Directory.GetDirectories(scenariosDirectory);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            Logger.LogError(exception, "Failed to read scenario directory: {Directory}", scenariosDirectory);
+            return;
+        }
+
+        if (mapDirectories.Length == 0)
+        {
+            Logger.LogError("No map scenario directories found in: {Directory}", scenariosDirectory);
+            return;
+        }
+
         var jsonOptions = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-        foreach (var (team, teamFolder) in new[]
+        foreach (var mapDirectory in mapDirectories)
+        {
+            var mapName = new DirectoryInfo(mapDirectory).Name;
+            foreach (var (team, teamFolder) in new[]
                  {
                      (CsTeam.CounterTerrorist, "CT"),
                      (CsTeam.Terrorist, "T")
                  })
-        {
-            foreach (var economy in Economies)
             {
-                var filePath = Path.Combine(
-                    pluginDirectory,
-                    "scenarios",
-                    teamFolder,
-                    economy.Tier.ToString(),
-                    "tactics.json");
-
-                if (!File.Exists(filePath))
+                foreach (var economy in Economies)
                 {
-                    Logger.LogError("Tactic configuration is missing: {FilePath}", filePath);
-                    continue;
-                }
+                    var filePath = Path.Combine(
+                        mapDirectory,
+                        teamFolder,
+                        economy.Tier.ToString(),
+                        "tactics.json");
 
-                try
-                {
-                    var catalog = JsonSerializer.Deserialize<TacticCatalog>(File.ReadAllText(filePath), jsonOptions);
-                    if (catalog is null || !IsValidCatalog(catalog))
+                    if (!File.Exists(filePath))
                     {
-                        Logger.LogError("Tactic configuration is empty or invalid: {FilePath}", filePath);
+                        Logger.LogError("Tactic configuration is missing: {FilePath}", filePath);
                         continue;
                     }
 
-                    _tacticCatalogs[(team, economy.Tier)] = catalog.Tactics;
-                }
-                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
-                {
-                    Logger.LogError(exception, "Failed to load tactic configuration: {FilePath}", filePath);
+                    try
+                    {
+                        var catalog = JsonSerializer.Deserialize<TacticCatalog>(File.ReadAllText(filePath), jsonOptions);
+                        if (catalog is null || !IsValidCatalog(catalog, mapName))
+                        {
+                            Logger.LogError("Tactic configuration is empty or invalid for map {Map}: {FilePath}", mapName, filePath);
+                            continue;
+                        }
+
+                        _tacticCatalogs[(mapName.ToLowerInvariant(), team, economy.Tier)] = catalog.Tactics;
+                    }
+                    catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
+                    {
+                        Logger.LogError(exception, "Failed to load tactic configuration: {FilePath}", filePath);
+                    }
                 }
             }
         }
     }
 
-    private static bool IsValidCatalog(TacticCatalog catalog) =>
+    private static bool IsValidCatalog(TacticCatalog catalog, string mapName) =>
         catalog.Tactics is { Count: > 0 } &&
         catalog.Tactics.All(option => option is not null &&
             !string.IsNullOrWhiteSpace(option.Id) &&
             !option.Id.Any(char.IsWhiteSpace) &&
             !string.IsNullOrWhiteSpace(option.Label) &&
-            !string.IsNullOrWhiteSpace(option.Map) &&
+            string.Equals(option.Map, mapName, StringComparison.OrdinalIgnoreCase) &&
             option.Positions is { Count: > 0 } &&
             option.Positions.All(position =>
                 position is not null &&
@@ -265,26 +296,22 @@ public sealed class ILYLeadYouPlugin : BasePlugin
 
     private List<TacticalOption> GetAvailableTactics(CsTeam team) =>
         _roundEconomies.TryGetValue(team, out var economy) &&
-        _tacticCatalogs.TryGetValue((team, economy), out var tactics)
+        _tacticCatalogs.TryGetValue((Server.MapName.ToLowerInvariant(), team, economy), out var tactics)
             ? tactics
             : [];
 
-    private void OnScenarioCommand(CCSPlayerController? player, CommandInfo command)
-    {
-        if (player is null)
-        {
-            return;
-        }
-
-        ShowScenario(player);
-    }
-
     private void OnForceStartCommand(CCSPlayerController? player, CommandInfo command)
     {
-        player?.PrintToChat("Démarrage forcé du scénario (!ily_start).");
-        CounterStrikeSharp.API.Server.ExecuteCommand("mp_warmup_end");
+        player?.PrintToChat("Démarrage forcé du scénario avec 15 secondes de freeze time.");
+        StartMatchAfterReady();
     }
-    
+
+    private static void StartMatchAfterReady()
+    {
+        Server.ExecuteCommand("mp_freezetime 15");
+        Server.ExecuteCommand("mp_warmup_end");
+    }
+
     private void OnTacticCommand(CCSPlayerController? player, CommandInfo command)
     {
         if (player is null || !player.IsValid ||
@@ -459,12 +486,12 @@ public sealed class ILYLeadYouPlugin : BasePlugin
         if (player.Team == CsTeam.CounterTerrorist || player.Team == CsTeam.Terrorist)
         {
             ShowTeamTactic(player, player.Team);
-            player.PrintToChat("Commandes: !scenario | .info | !ily_tactic | !ily_ready | !ily_start");
+            player.PrintToChat("Commandes: .info / !info | .ready / !ready | !ily_tactic | !ily_start");
         }
         else
         {
             player.PrintToChat("Les informations tactiques sont réservées aux joueurs de chaque équipe.");
-            player.PrintToChat("Commandes: !scenario | .info | !ily_start");
+            player.PrintToChat("Commandes: .info / !info | !ily_start");
         }
 
         player.PrintToChat("Cartes: Inferno, Anubis | Choix: Cache, Dust 2, Ancient | Autres: Overpass, Vertigo, Mirage...");
