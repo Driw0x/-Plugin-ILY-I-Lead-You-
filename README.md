@@ -16,7 +16,10 @@ Le serveur doit avoir CounterStrikeSharp et son runtime .NET 10 installés.
 
 ## Commandes joueurs
 
-- `!scenario` — affiche l'économie, le rôle CT, le vote et les cartes envisagées.
+- `!scenario` — affiche dans le chat l'économie, les rôles CT, le vote, les
+  cartes envisagées et les commandes disponibles. Le récapitulatif reste dans
+  l'historique du chat au lieu de disparaître comme un message au centre de
+  l'écran; il est aussi envoyé au début du round et après une mise à jour.
 - CT: `!role t long-defensive` ou `!role t banana-aggressive` pour le rôle T;
   `!role apps` et `!role b-solo` pour les deux autres rôles. Chaque rôle est
   attribué à un seul CT. Le choix défensif permet de tenir ou reculer; le choix

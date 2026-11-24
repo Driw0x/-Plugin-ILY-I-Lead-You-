@@ -236,13 +236,12 @@ public sealed class ILYLeadYouPlugin : BasePlugin
         var plan = _winningPlan is { } winner
             ? FormatPlan(winner)
             : $"vote en cours ({_terroristVotes.Count}/3)";
-        var html = $"<font color='#ffd700'>ILY — Inferno 3v3</font><br>" +
-                   $"Économie: {economy}<br>" +
-                   $"Rôles CT: {WebUtility.HtmlEncode(roles)}<br>" +
-                   $"Plan Terro: {WebUtility.HtmlEncode(plan)}<br>" +
-                   "Main: Inferno, Anubis | Choix: Inferno, Anubis, Cache, Dust 2, Ancient<br>" +
-                   "Autres: Overpass, Vertigo, Mirage, etc.";
-        player.PrintToCenterHtml(html, 10);
+        player.PrintToChat("ILY — Inferno 3v3");
+        player.PrintToChat($"Économie: {economy}");
+        player.PrintToChat($"Rôles CT: {roles}");
+        player.PrintToChat($"Plan Terro: {plan}");
+        player.PrintToChat("Cartes: Inferno, Anubis | Choix: Cache, Dust 2, Ancient | Autres: Overpass, Vertigo, Mirage...");
+        player.PrintToChat("Commandes: !scenario | CT: !role t long-defensive|banana-aggressive, !role apps, !role b-solo | Terros: !tactic banana|second-mid|mid-long");
     }
 
     private static string FormatRole(RoleAssignment assignment) =>
