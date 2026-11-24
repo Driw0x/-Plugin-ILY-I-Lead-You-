@@ -1,10 +1,8 @@
 using System.Text.Json;
-using System.Globalization;
 using CounterStrikeSharp.API;
 using CounterStrikeSharp.API.Core;
 using CounterStrikeSharp.API.Modules.Commands;
 using CounterStrikeSharp.API.Modules.Menu;
-using CounterStrikeSharp.API.Modules.Utils;
 using Microsoft.Extensions.Logging;
 
 namespace ILYLeadYou;
@@ -40,33 +38,7 @@ public sealed class ILYLeadYouPlugin : BasePlugin
         public int Slot { get; set; }
         public string Zone { get; set; } = "";
         public string Instruction { get; set; } = "";
-        public TacticalSpawn? Spawn { get; set; }
     }
-
-    private sealed class TacticalSpawn
-    {
-        public TacticalSpawn() { }
-        public SpawnOrigin Origin { get; set; } = new();
-        public SpawnAngles Angles { get; set; } = new();
-    }
-
-    private sealed class SpawnOrigin
-    {
-        public SpawnOrigin() { }
-        public float X { get; set; }
-        public float Y { get; set; }
-        public float Z { get; set; }
-    }
-
-    private sealed class SpawnAngles
-    {
-        public SpawnAngles() { }
-        public float Pitch { get; set; }
-        public float Yaw { get; set; }
-        public float Roll { get; set; }
-    }
-
-    private readonly record struct SpawnLocation(float X, float Y, float Z);
 
     private static readonly (EconomyTier Tier, int Cash)[] Economies =
     [
@@ -79,7 +51,6 @@ public sealed class ILYLeadYouPlugin : BasePlugin
     private readonly Dictionary<(CsTeam Team, EconomyTier Tier), List<TacticalOption>> _tacticCatalogs = [];
     private readonly Dictionary<CsTeam, Dictionary<ulong, string>> _tacticVotes = [];
     private readonly Dictionary<CsTeam, TacticalOption> _selectedTactics = [];
-    private readonly Dictionary<CsTeam, Dictionary<int, TacticalPosition>> _spawnAssignments = [];
     private readonly Dictionary<CsTeam, EconomyTier> _roundEconomies = [];
     private readonly Dictionary<CsTeam, ulong> _teamReadyPlayers = [];
 
@@ -99,7 +70,6 @@ public sealed class ILYLeadYouPlugin : BasePlugin
         AddCommand("css_scenario", "Display your team's scenario and economy.", OnScenarioCommand);
         AddCommand("css_ily_tactic", "Open your team's tactic vote menu.", OnTacticCommand);
         AddCommand("css_ily_ready", "Mark your team ready to end the freeze time.", OnReadyCommand);
-        AddCommand("css_ily_position", "Show your current map position for scenario JSON.", OnPositionCommand);
         AddCommand("css_ily_start", "Force the scenario to start without waiting for six players.", OnForceStartCommand);
     }
 
@@ -107,7 +77,6 @@ public sealed class ILYLeadYouPlugin : BasePlugin
     {
         _tacticVotes.Clear();
         _selectedTactics.Clear();
-        _spawnAssignments.Clear();
         _roundEconomies.Clear();
         _teamReadyPlayers.Clear();
 
@@ -145,20 +114,6 @@ public sealed class ILYLeadYouPlugin : BasePlugin
                 if (player.IsValid && _roundEconomies.ContainsKey(player.Team))
                 {
                     ApplyEconomy(player);
-                    if (GetGameRules()?.FreezePeriod == true &&
-                        _selectedTactics.ContainsKey(CsTeam.CounterTerrorist) &&
-                        _selectedTactics.ContainsKey(CsTeam.Terrorist))
-                    {
-                        if (_spawnAssignments.TryGetValue(player.Team, out var assignments) &&
-                            assignments.TryGetValue(player.Slot, out var assignment))
-                        {
-                            TeleportToTacticalSpawn(player, assignment);
-                        }
-                        else
-                        {
-                            TryAssignTacticalSpawns();
-                        }
-                    }
                 }
             });
         }
@@ -194,28 +149,6 @@ public sealed class ILYLeadYouPlugin : BasePlugin
         {
             HandleReady(player);
         }
-    }
-
-    private void OnPositionCommand(CCSPlayerController? player, CommandInfo command)
-    {
-        if (player is not { IsValid: true })
-        {
-            return;
-        }
-
-        var pawn = player.PlayerPawn.Value;
-        var sceneNode = pawn?.CBodyComponent?.SceneNode;
-        if (pawn is null || !pawn.IsValid || sceneNode is null)
-        {
-            player.PrintToChat("Impossible de lire votre position actuelle.");
-            return;
-        }
-
-        var origin = sceneNode.AbsOrigin;
-        var angles = pawn.EyeAngles;
-        player.PrintToChat($"Carte: {Server.MapName}");
-        player.PrintToChat($"origin: {{\"x\":{FormatCoordinate(origin.X)},\"y\":{FormatCoordinate(origin.Y)},\"z\":{FormatCoordinate(origin.Z)}}}");
-        player.PrintToChat($"angles: {{\"pitch\":{FormatCoordinate(angles.X)},\"yaw\":{FormatCoordinate(angles.Y)},\"roll\":{FormatCoordinate(angles.Z)}}}");
     }
 
     private void HandleReady(CCSPlayerController player)
@@ -324,30 +257,11 @@ public sealed class ILYLeadYouPlugin : BasePlugin
                 position is not null &&
                 position.Slot > 0 &&
                 !string.IsNullOrWhiteSpace(position.Zone) &&
-                !string.IsNullOrWhiteSpace(position.Instruction) &&
-                (position.Spawn is null || IsValidSpawn(position.Spawn))) &&
+                !string.IsNullOrWhiteSpace(position.Instruction)) &&
             option.Positions.Select(position => position.Slot).Distinct().Count() == option.Positions.Count) &&
-        catalog.Tactics.All(option =>
-            option.Positions.Where(position => position.Spawn is not null)
-                .Select(position => GetSpawnLocation(position.Spawn!.Origin))
-                .Distinct()
-                .Count() == option.Positions.Count(position => position.Spawn is not null)) &&
         catalog.Tactics.Select(option => option.Id)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Count() == catalog.Tactics.Count;
-
-    private static bool IsValidSpawn(TacticalSpawn spawn) =>
-        spawn.Origin is not null &&
-        spawn.Angles is not null &&
-        float.IsFinite(spawn.Origin.X) &&
-        float.IsFinite(spawn.Origin.Y) &&
-        float.IsFinite(spawn.Origin.Z) &&
-        float.IsFinite(spawn.Angles.Pitch) &&
-        float.IsFinite(spawn.Angles.Yaw) &&
-        float.IsFinite(spawn.Angles.Roll);
-
-    private static SpawnLocation GetSpawnLocation(SpawnOrigin origin) =>
-        new(origin.X, origin.Y, origin.Z);
 
     private List<TacticalOption> GetAvailableTactics(CsTeam team) =>
         _roundEconomies.TryGetValue(team, out var economy) &&
@@ -467,14 +381,7 @@ public sealed class ILYLeadYouPlugin : BasePlugin
             {
                 var winner = options.First(option =>
                     option.Id.Equals(leadingVote.Key, StringComparison.OrdinalIgnoreCase));
-                var changed = !_selectedTactics.TryGetValue(player.Team, out var previous) ||
-                    !previous.Id.Equals(winner.Id, StringComparison.OrdinalIgnoreCase);
                 _selectedTactics[player.Team] = winner;
-                if (changed)
-                {
-                    _spawnAssignments.Clear();
-                    TryAssignTacticalSpawns();
-                }
 
                 BroadcastToTeam(player.Team, $"Tactique retenue: {winner.Label}.");
             }
@@ -482,7 +389,6 @@ public sealed class ILYLeadYouPlugin : BasePlugin
             {
                 votes.Clear();
                 _selectedTactics.Remove(player.Team);
-                _spawnAssignments.Clear();
                 BroadcastToTeam(player.Team, "Égalité: revote nécessaire pour choisir la tactique.");
             }
         }
@@ -492,147 +398,6 @@ public sealed class ILYLeadYouPlugin : BasePlugin
         }
 
         ShowScenarioToPlayers();
-    }
-
-    private bool TryAssignTacticalSpawns()
-    {
-        if (GetGameRules()?.FreezePeriod != true)
-        {
-            return false;
-        }
-
-        var teams = new[] { CsTeam.CounterTerrorist, CsTeam.Terrorist };
-        if (teams.Any(team => !_selectedTactics.ContainsKey(team)))
-        {
-            return false;
-        }
-
-        var playersByTeam = teams.ToDictionary(team => team, GetPlayers);
-        foreach (var team in teams)
-        {
-            var tactic = _selectedTactics[team];
-            if (!tactic.Map.Equals(Server.MapName, StringComparison.OrdinalIgnoreCase))
-            {
-                BroadcastToTeam(team, $"Les positions de cette tactique sont prévues pour {tactic.Map}, pas {Server.MapName}.");
-                Logger.LogWarning("Cannot place {Team} players: tactic {TacticId} is for map {TacticMap}, current map is {CurrentMap}.",
-                    team, tactic.Id, tactic.Map, Server.MapName);
-                return false;
-            }
-
-            var availableSpawnCount = tactic.Positions.Count(position => position.Spawn is not null);
-            if (availableSpawnCount < playersByTeam[team].Count)
-            {
-                BroadcastToTeam(team, $"Positions insuffisantes: {availableSpawnCount} configurée(s) pour {playersByTeam[team].Count} joueur(s).");
-                Logger.LogWarning("Not enough spawn points for {Team} tactic {TacticId}: {SpawnCount} points for {PlayerCount} players.",
-                    team, tactic.Id, availableSpawnCount, playersByTeam[team].Count);
-                return false;
-            }
-        }
-
-        Dictionary<CsTeam, Dictionary<int, TacticalPosition>>? assignments = null;
-        for (var attempt = 0; attempt < 64 && assignments is null; attempt++)
-        {
-            var occupiedPositions = new HashSet<SpawnLocation>();
-            var candidateAssignments = new Dictionary<CsTeam, Dictionary<int, TacticalPosition>>();
-            var teamOrder = teams.ToList();
-            Shuffle(teamOrder);
-            var validAssignment = true;
-
-            foreach (var team in teamOrder)
-            {
-                if (playersByTeam[team].Count == 0)
-                {
-                    candidateAssignments[team] = [];
-                    continue;
-                }
-
-                var candidates = _selectedTactics[team].Positions
-                    .Where(position => position.Spawn is not null)
-                    .ToList();
-                Shuffle(candidates);
-
-                var selectedPositions = new List<TacticalPosition>();
-                foreach (var candidate in candidates)
-                {
-                    if (occupiedPositions.Add(GetSpawnLocation(candidate.Spawn!.Origin)))
-                    {
-                        selectedPositions.Add(candidate);
-                    }
-
-                    if (selectedPositions.Count == playersByTeam[team].Count)
-                    {
-                        break;
-                    }
-                }
-
-                if (selectedPositions.Count != playersByTeam[team].Count)
-                {
-                    validAssignment = false;
-                    break;
-                }
-
-                var players = playersByTeam[team].ToList();
-                Shuffle(players);
-                candidateAssignments[team] = players
-                    .Select((player, index) => (PlayerSlot: player.Slot, Position: selectedPositions[index]))
-                    .ToDictionary(assignment => assignment.PlayerSlot, assignment => assignment.Position);
-            }
-
-            if (validAssignment)
-            {
-                assignments = candidateAssignments;
-            }
-        }
-
-        if (assignments is null)
-        {
-            Broadcast("Positions incompatibles: vérifiez qu'aucune position T et CT ne partage les mêmes coordonnées.");
-            Logger.LogWarning("Could not assign unique spawn coordinates to both teams; check the selected tactic JSON files.");
-            return false;
-        }
-
-        _spawnAssignments.Clear();
-        foreach (var team in teams)
-        {
-            _spawnAssignments[team] = assignments[team];
-            foreach (var player in playersByTeam[team])
-            {
-                if (assignments[team].TryGetValue(player.Slot, out var position))
-                {
-                    TeleportToTacticalSpawn(player, position);
-                }
-            }
-
-            BroadcastToTeam(team, "Positions de départ attribuées aléatoirement sans doublon.");
-        }
-
-        return true;
-    }
-
-    private static void Shuffle<T>(List<T> values)
-    {
-        for (var index = values.Count - 1; index > 0; index--)
-        {
-            var otherIndex = Random.Shared.Next(index + 1);
-            (values[index], values[otherIndex]) = (values[otherIndex], values[index]);
-        }
-    }
-
-    private static bool TeleportToTacticalSpawn(CCSPlayerController player, TacticalPosition position)
-    {
-        if (!player.IsValid ||
-            position.Spawn is not { Origin: not null, Angles: not null } spawn ||
-            player.PlayerPawn.Value is not { IsValid: true } pawn)
-        {
-            return false;
-        }
-
-        pawn.Teleport(
-            new Vector(spawn.Origin.X, spawn.Origin.Y, spawn.Origin.Z),
-            new QAngle(spawn.Angles.Pitch, spawn.Angles.Yaw, spawn.Angles.Roll),
-            new Vector(0, 0, 0));
-        player.PrintToChat($"Votre position de départ: slot {position.Slot} - {position.Zone}.");
-        return true;
     }
 
     private static List<CCSPlayerController> GetPlayers(CsTeam team) =>
@@ -694,7 +459,7 @@ public sealed class ILYLeadYouPlugin : BasePlugin
         if (player.Team == CsTeam.CounterTerrorist || player.Team == CsTeam.Terrorist)
         {
             ShowTeamTactic(player, player.Team);
-            player.PrintToChat("Commandes: !scenario | .info | !ily_tactic | !ily_ready | !ily_position | !ily_start");
+            player.PrintToChat("Commandes: !scenario | .info | !ily_tactic | !ily_ready | !ily_start");
         }
         else
         {
@@ -749,6 +514,4 @@ public sealed class ILYLeadYouPlugin : BasePlugin
         }
     }
 
-    private static string FormatCoordinate(float value) =>
-        value.ToString("0.###", CultureInfo.InvariantCulture);
 }
