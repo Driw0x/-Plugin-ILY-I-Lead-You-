@@ -43,6 +43,7 @@ public sealed class ILYLeadYouPlugin : BasePlugin
     private readonly Dictionary<ulong, RoleAssignment> _ctRoles = [];
     private readonly Dictionary<ulong, TerroristPlan> _terroristVotes = [];
     private readonly Dictionary<CsTeam, EconomyTier> _roundEconomies = [];
+    private readonly Dictionary<CsTeam, ulong> _teamReadyPlayers = [];
     private TerroristPlan? _winningPlan;
 
     public override string ModuleName => "ILY Lead You";
@@ -55,6 +56,8 @@ public sealed class ILYLeadYouPlugin : BasePlugin
         RegisterEventHandler<EventRoundPrestart>(OnRoundPrestart);
         RegisterEventHandler<EventRoundStart>(OnRoundStart);
         RegisterEventHandler<EventPlayerSpawn>(OnPlayerSpawn);
+        AddCommandListener("say", OnClientSay, HookMode.Pre);
+        AddCommandListener("say_team", OnClientSay, HookMode.Pre);
         AddCommand("css_scenario", "Display the current scenario, roles, votes and economy.", OnScenarioCommand);
         AddCommand("css_role", "Choose a CT role: t [long-defensive|banana-aggressive], apps, or b-solo.", OnRoleCommand);
         AddCommand("css_tactic", "Vote: banana, second-mid, or mid-long.", OnTacticCommand);
@@ -66,6 +69,7 @@ public sealed class ILYLeadYouPlugin : BasePlugin
         _ctRoles.Clear();
         _terroristVotes.Clear();
         _roundEconomies.Clear();
+        _teamReadyPlayers.Clear();
         _winningPlan = null;
 
         var ctEconomyIndex = Random.Shared.Next(Economies.Length);
@@ -107,6 +111,72 @@ public sealed class ILYLeadYouPlugin : BasePlugin
 
         return HookResult.Continue;
     }
+
+    private HookResult OnClientSay(CCSPlayerController? player, CommandInfo command)
+    {
+        if (player is null || !player.IsValid)
+        {
+            return HookResult.Continue;
+        }
+
+        var message = command.ArgString.Trim();
+        if (message.Length >= 2 && message[0] == '"' && message[^1] == '"')
+        {
+            message = message[1..^1].Trim();
+        }
+
+        if (message.Equals(".info", StringComparison.OrdinalIgnoreCase))
+        {
+            ShowScenario(player);
+            return HookResult.Handled;
+        }
+
+        if (message.Equals(".ready", StringComparison.OrdinalIgnoreCase))
+        {
+            HandleReady(player);
+            return HookResult.Handled;
+        }
+
+        return HookResult.Continue;
+    }
+
+    private void HandleReady(CCSPlayerController player)
+    {
+        if (player.Team != CsTeam.CounterTerrorist && player.Team != CsTeam.Terrorist)
+        {
+            player.PrintToChat("Seuls les joueurs CT ou Terros peuvent indiquer que leur équipe est prête.");
+            return;
+        }
+
+        var gameRules = GetGameRules();
+        if (gameRules is null || !gameRules.FreezePeriod)
+        {
+            player.PrintToChat("La commande .ready est disponible pendant le freeze time.");
+            return;
+        }
+
+        _teamReadyPlayers[player.Team] = player.SteamID;
+        var ctReady = IsTeamReady(CsTeam.CounterTerrorist);
+        var terroristReady = IsTeamReady(CsTeam.Terrorist);
+        Broadcast($"État ready — CT: {(ctReady ? "prêts" : "en attente")} | Terros: {(terroristReady ? "prêts" : "en attente")}.");
+
+        if (!ctReady || !terroristReady)
+        {
+            return;
+        }
+
+        gameRules.GameStartTime = Server.CurrentTime;
+        gameRules.FreezePeriod = false;
+        Broadcast("Les deux équipes sont prêtes, la manche commence !");
+    }
+
+    private bool IsTeamReady(CsTeam team) =>
+        _teamReadyPlayers.TryGetValue(team, out var readyPlayerId) &&
+        GetPlayers(team).Any(player => player.SteamID == readyPlayerId);
+
+    private static CCSGameRules? GetGameRules() =>
+        Utilities.FindAllEntitiesByDesignerName<CCSGameRulesProxy>("cs_gamerules")
+            .FirstOrDefault()?.GameRules;
 
     private void OnScenarioCommand(CCSPlayerController? player, CommandInfo command)
     {
@@ -343,6 +413,14 @@ public sealed class ILYLeadYouPlugin : BasePlugin
     private void BroadcastToTeam(CsTeam team, string message)
     {
         foreach (var player in GetPlayers(team))
+        {
+            player.PrintToChat(message);
+        }
+    }
+
+    private void Broadcast(string message)
+    {
+        foreach (var player in Utilities.GetPlayers().Where(player => player.IsValid))
         {
             player.PrintToChat(message);
         }
