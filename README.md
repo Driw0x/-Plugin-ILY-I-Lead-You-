@@ -1,4 +1,4 @@
-# ILY — Lead You
+# ILY - I Lead You !
 
 Plugin CounterStrikeSharp pour jouer un scénario tactique 3 CT contre 3 Terros,
 actuellement conçu autour d'Inferno. À chaque round, chaque équipe reçoit une
