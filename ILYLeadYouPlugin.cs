@@ -274,7 +274,7 @@ public sealed class ILYLeadYouPlugin : BasePlugin
 
     private void LoadTacticCatalogs()
     {
-        var pluginDirectory = Path.GetDirectoryName(typeof(ILYLeadYouPlugin).Assembly.Location);
+        var pluginDirectory = ModuleDirectory;
         if (string.IsNullOrWhiteSpace(pluginDirectory))
         {
             Logger.LogError("Could not locate the plugin directory; tactic JSON files cannot be loaded.");
