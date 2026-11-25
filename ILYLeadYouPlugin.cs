@@ -1,8 +1,6 @@
 using System.Text.Json;
 using CounterStrikeSharp.API;
 using CounterStrikeSharp.API.Core;
-using CounterStrikeSharp.API.Core.Plugin;
-using CounterStrikeSharp.API.Core.Plugin.Host;
 using CounterStrikeSharp.API.Modules.Commands;
 using CounterStrikeSharp.API.Modules.Menu;
 using CounterStrikeSharp.API.Modules.Utils;
@@ -59,12 +57,9 @@ public sealed class ILYLeadYouPlugin : BasePlugin
     private readonly Dictionary<CsTeam, Dictionary<ulong, int>> _selectedRoles = [];
     private readonly Dictionary<CsTeam, EconomyTier> _roundEconomies = [];
     private readonly Dictionary<CsTeam, ulong> _teamReadyPlayers = [];
-    private readonly IPluginManager _pluginManager;
     private bool _warmupSetupStarted;
     private bool _warmupSelectionForRound;
     private IlyRoundPhase _ilyRoundPhase;
-
-    public ILYLeadYouPlugin(IPluginManager pluginManager) => _pluginManager = pluginManager;
 
     public override string ModuleName => "I Lead You";
     public override string ModuleVersion => "1.0.0";
@@ -175,7 +170,7 @@ public sealed class ILYLeadYouPlugin : BasePlugin
             _warmupSetupStarted = false;
             Server.NextFrame(() =>
             {
-                if (IsMatchZyLoaded()) Server.ExecuteCommand("css_match");
+                if (IsMatchZyInstalled()) Server.ExecuteCommand("css_match");
                 else StartWarmupWithoutMatchZy();
             });
         }
@@ -461,18 +456,17 @@ public sealed class ILYLeadYouPlugin : BasePlugin
         if (_ilyRoundPhase != IlyRoundPhase.Idle) return;
 
         _ilyRoundPhase = IlyRoundPhase.Starting;
-        if (IsMatchZyLoaded()) Server.ExecuteCommand("css_sleep");
+        if (IsMatchZyInstalled()) Server.ExecuteCommand("css_sleep");
         Server.ExecuteCommand("mp_freezetime 15");
         Server.ExecuteCommand("mp_warmup_end");
     }
 
-    private bool IsMatchZyLoaded() =>
-        _pluginManager.GetLoadedPlugins().Any(plugin =>
-            plugin.State == PluginState.Loaded && plugin.Plugin.ModuleName == "MatchZy");
+    private static bool IsMatchZyInstalled() =>
+        File.Exists(Path.Combine(Application.RootDirectory, "plugins", "MatchZy", "MatchZy.dll"));
 
     private void StartWarmupWithoutMatchZy()
     {
-        if (!IsCurrentMapSupported() || IsMatchZyLoaded()) return;
+        if (!IsCurrentMapSupported() || IsMatchZyInstalled()) return;
 
         Server.ExecuteCommand("mp_warmup_pausetimer 1");
         Server.ExecuteCommand("mp_warmup_start");

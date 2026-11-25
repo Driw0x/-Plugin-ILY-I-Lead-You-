@@ -16,10 +16,10 @@ Le serveur doit avoir CounterStrikeSharp et son runtime .NET 10 installés.
 ## Coexistence avec MatchZy
 
 Quand `.ily_start` est lancé ou que les deux équipes ont validé
-`.ily_ready`, ILY place MatchZy en veille avec `css_sleep` s'il est chargé,
+`.ily_ready`, ILY place MatchZy en veille avec `css_sleep` s'il est installé,
 puis termine la warmup. Le simple chargement d'ILY ne met pas MatchZy en
 veille. MatchZy refuse `css_sleep` si un de ses matchs est déjà en cours. À la
-fin de la première manche ILY, ILY exécute `css_match` si MatchZy est chargé.
+fin de la première manche ILY, ILY exécute `css_match` si MatchZy est installé.
 MatchZy réinitialise son match et relance sa warmup. Sans MatchZy, ILY lance
 l'échauffement à son chargement, au changement de carte et après sa manche.
 `mp_warmup_pausetimer 1` le garde actif jusqu'à `.ily_start` ou jusqu'aux
