@@ -13,6 +13,18 @@ actuellement conçu autour d'Inferno. À chaque round, chaque équipe reçoit un
 
 Le serveur doit avoir CounterStrikeSharp et son runtime .NET 10 installés.
 
+## Coexistence avec MatchZy
+
+Quand `.ily_start` est lancé ou que les deux équipes ont validé
+`.ily_ready`, ILY place MatchZy en veille avec `css_sleep` s'il est chargé,
+puis termine la warmup. Le simple chargement d'ILY ne met pas MatchZy en
+veille. MatchZy refuse `css_sleep` si un de ses matchs est déjà en cours. À la
+fin de la première manche ILY, ILY exécute `css_match` si MatchZy est chargé.
+MatchZy réinitialise son match et relance sa warmup. Sans MatchZy, ILY lance
+l'échauffement à son chargement, au changement de carte et après sa manche.
+`mp_warmup_pausetimer 1` le garde actif jusqu'à `.ily_start` ou jusqu'aux
+`.ily_ready` des deux équipes.
+
 ## Commandes joueurs
 
 - `.ily_start` ou `!ily_start` — force la fin de la warmup sans attendre les
@@ -22,12 +34,11 @@ Le serveur doit avoir CounterStrikeSharp et son runtime .NET 10 installés.
   récapitulatif reste dans l'historique du chat au lieu de disparaître comme
   un message au centre de l'écran; il est aussi envoyé au début du round et
   après une mise à jour.
-- `.ready` ou `!ready` — indique que votre équipe est prête avant le match,
+- `.ily_ready` ou `!ily_ready` — indique que votre équipe est prête avant le match,
   pendant la warmup, après le vote tactique et le choix d'un rôle par joueur.
   Une personne de chaque équipe doit le faire; la warmup prend alors fin et
   la manche démarre avec 15 secondes de freeze time.
-  `.ily_ready` et `!ily_ready` fonctionnent aussi. Ces commandes sont
-  interceptées par ILY pour éviter la réponse ready de MatchZy.
+  `.ready`, `!ready`, `.r` et `!r` restent réservées à MatchZy.
 - `.ily_tactic` ou `!ily_tactic` — ouvre le menu de vote tactique de votre
   équipe pendant la warmup ou le freeze time. Le menu s'ouvre aussi
   automatiquement au début du round. Les choix sont privés et le résultat

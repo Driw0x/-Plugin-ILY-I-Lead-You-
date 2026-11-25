@@ -1,6 +1,8 @@
 using System.Text.Json;
 using CounterStrikeSharp.API;
 using CounterStrikeSharp.API.Core;
+using CounterStrikeSharp.API.Core.Plugin;
+using CounterStrikeSharp.API.Core.Plugin.Host;
 using CounterStrikeSharp.API.Modules.Commands;
 using CounterStrikeSharp.API.Modules.Menu;
 using CounterStrikeSharp.API.Modules.Utils;
@@ -17,6 +19,8 @@ public sealed class ILYLeadYouPlugin : BasePlugin
         Force,
         Full
     }
+
+    private enum IlyRoundPhase { Idle, Starting, Playing }
 
     private sealed class TacticCatalog
     {
@@ -55,8 +59,12 @@ public sealed class ILYLeadYouPlugin : BasePlugin
     private readonly Dictionary<CsTeam, Dictionary<ulong, int>> _selectedRoles = [];
     private readonly Dictionary<CsTeam, EconomyTier> _roundEconomies = [];
     private readonly Dictionary<CsTeam, ulong> _teamReadyPlayers = [];
+    private readonly IPluginManager _pluginManager;
     private bool _warmupSetupStarted;
     private bool _warmupSelectionForRound;
+    private IlyRoundPhase _ilyRoundPhase;
+
+    public ILYLeadYouPlugin(IPluginManager pluginManager) => _pluginManager = pluginManager;
 
     public override string ModuleName => "I Lead You";
     public override string ModuleVersion => "1.0.0";
@@ -68,7 +76,13 @@ public sealed class ILYLeadYouPlugin : BasePlugin
         LoadTacticCatalogs();
         RegisterEventHandler<EventRoundPrestart>(OnRoundPrestart);
         RegisterEventHandler<EventRoundStart>(OnRoundStart);
+        RegisterEventHandler<EventRoundEnd>(OnRoundEnd);
         RegisterEventHandler<EventPlayerSpawn>(OnPlayerSpawn);
+        RegisterListener<Listeners.OnMapStart>(_ =>
+        {
+            _ilyRoundPhase = IlyRoundPhase.Idle;
+            Server.NextFrame(StartWarmupWithoutMatchZy);
+        });
         AddCommandListener("say", OnClientSay, HookMode.Pre);
         AddCommandListener("say_team", OnClientSay, HookMode.Pre);
         AddCommand("css_ily_tactic", "Open your team's tactic vote menu.", OnTacticCommand);
@@ -77,8 +91,13 @@ public sealed class ILYLeadYouPlugin : BasePlugin
         AddCommand("css_ily_start", "Force the scenario to start without waiting for six players.", OnForceStartCommand);
     }
 
+    public override void OnAllPluginsLoaded(bool hotReload) =>
+        Server.NextFrame(StartWarmupWithoutMatchZy);
+
     private HookResult OnRoundPrestart(EventRoundPrestart gameEvent, GameEventInfo info)
     {
+        if (!IsCurrentMapSupported()) return HookResult.Continue;
+
         var warmup = GetGameRules()?.WarmupPeriod == true;
         if (_warmupSetupStarted)
         {
@@ -120,10 +139,18 @@ public sealed class ILYLeadYouPlugin : BasePlugin
 
     private HookResult OnRoundStart(EventRoundStart gameEvent, GameEventInfo info)
     {
+        if (!IsCurrentMapSupported()) return HookResult.Continue;
+
         ApplyEconomy(CsTeam.CounterTerrorist);
         ApplyEconomy(CsTeam.Terrorist);
         ShowScenarioToPlayers();
-        var warmup = GetGameRules()?.WarmupPeriod == true;
+        var gameRules = GetGameRules();
+        var warmup = gameRules?.WarmupPeriod == true;
+        if (_ilyRoundPhase == IlyRoundPhase.Starting && gameRules?.WarmupPeriod == false)
+        {
+            _ilyRoundPhase = IlyRoundPhase.Playing;
+        }
+
         if (_warmupSelectionForRound)
         {
             AnnounceRoleInstructions();
@@ -140,8 +167,26 @@ public sealed class ILYLeadYouPlugin : BasePlugin
         return HookResult.Continue;
     }
 
+    private HookResult OnRoundEnd(EventRoundEnd gameEvent, GameEventInfo info)
+    {
+        if (_ilyRoundPhase == IlyRoundPhase.Playing)
+        {
+            _ilyRoundPhase = IlyRoundPhase.Idle;
+            _warmupSetupStarted = false;
+            Server.NextFrame(() =>
+            {
+                if (IsMatchZyLoaded()) Server.ExecuteCommand("css_match");
+                else StartWarmupWithoutMatchZy();
+            });
+        }
+
+        return HookResult.Continue;
+    }
+
     private HookResult OnPlayerSpawn(EventPlayerSpawn gameEvent, GameEventInfo info)
     {
+        if (!IsCurrentMapSupported()) return HookResult.Continue;
+
         var player = gameEvent.Userid;
         if (player is not null && _roundEconomies.ContainsKey(player.Team))
         {
@@ -159,7 +204,7 @@ public sealed class ILYLeadYouPlugin : BasePlugin
 
     private HookResult OnClientSay(CCSPlayerController? player, CommandInfo command)
     {
-        if (player is null || !player.IsValid)
+        if (player is null || !player.IsValid || !IsCurrentMapSupported())
         {
             return HookResult.Continue;
         }
@@ -177,12 +222,7 @@ public sealed class ILYLeadYouPlugin : BasePlugin
             return HookResult.Handled;
         }
 
-        // Route ready aliases through ILY instead of MatchZy's chat handler.
-        if (message.Equals("!ready", StringComparison.OrdinalIgnoreCase) ||
-            message.Equals(".ready", StringComparison.OrdinalIgnoreCase) ||
-            message.Equals("!r", StringComparison.OrdinalIgnoreCase) ||
-            message.Equals(".r", StringComparison.OrdinalIgnoreCase) ||
-            message.Equals("!ily_ready", StringComparison.OrdinalIgnoreCase) ||
+        if (message.Equals("!ily_ready", StringComparison.OrdinalIgnoreCase) ||
             message.Equals(".ily_ready", StringComparison.OrdinalIgnoreCase))
         {
             HandleReady(player);
@@ -220,6 +260,8 @@ public sealed class ILYLeadYouPlugin : BasePlugin
 
     private void HandleReady(CCSPlayerController player)
     {
+        if (!IsCurrentMapSupported()) return;
+
         if (player.Team != CsTeam.CounterTerrorist && player.Team != CsTeam.Terrorist)
         {
             player.PrintToChat("Seuls les joueurs CT ou Terros peuvent indiquer que leur équipe est prête.");
@@ -229,7 +271,7 @@ public sealed class ILYLeadYouPlugin : BasePlugin
         var gameRules = GetGameRules();
         if (gameRules is null || !gameRules.WarmupPeriod)
         {
-            player.PrintToChat("La commande ready est disponible avant le match, pendant le warmup.");
+            player.PrintToChat("La commande .ily_ready est disponible avant le match, pendant le warmup.");
             return;
         }
 
@@ -271,6 +313,10 @@ public sealed class ILYLeadYouPlugin : BasePlugin
     private static CCSGameRules? GetGameRules() =>
         Utilities.FindAllEntitiesByDesignerName<CCSGameRulesProxy>("cs_gamerules")
             .FirstOrDefault()?.GameRules;
+
+    private bool IsCurrentMapSupported() =>
+        !string.IsNullOrWhiteSpace(ModuleDirectory) &&
+        Directory.Exists(Path.Combine(ModuleDirectory, "scenarios", NormalizeMapName(Server.MapName)));
 
     private void LoadTacticCatalogs()
     {
@@ -398,18 +444,44 @@ public sealed class ILYLeadYouPlugin : BasePlugin
 
     private void OnForceStartCommand(CCSPlayerController? player, CommandInfo command)
     {
+        if (!IsCurrentMapSupported()) return;
+
+        if (GetGameRules()?.WarmupPeriod != true)
+        {
+            player?.PrintToChat("La commande .ily_start est disponible pendant le warmup.");
+            return;
+        }
+
         player?.PrintToChat("Démarrage forcé du scénario avec 15 secondes de freeze time.");
         StartMatchAfterReady();
     }
 
-    private static void StartMatchAfterReady()
+    private void StartMatchAfterReady()
     {
+        if (_ilyRoundPhase != IlyRoundPhase.Idle) return;
+
+        _ilyRoundPhase = IlyRoundPhase.Starting;
+        if (IsMatchZyLoaded()) Server.ExecuteCommand("css_sleep");
         Server.ExecuteCommand("mp_freezetime 15");
         Server.ExecuteCommand("mp_warmup_end");
     }
 
+    private bool IsMatchZyLoaded() =>
+        _pluginManager.GetLoadedPlugins().Any(plugin =>
+            plugin.State == PluginState.Loaded && plugin.Plugin.ModuleName == "MatchZy");
+
+    private void StartWarmupWithoutMatchZy()
+    {
+        if (!IsCurrentMapSupported() || IsMatchZyLoaded()) return;
+
+        Server.ExecuteCommand("mp_warmup_pausetimer 1");
+        Server.ExecuteCommand("mp_warmup_start");
+    }
+
     private void OnTacticCommand(CCSPlayerController? player, CommandInfo command)
     {
+        if (!IsCurrentMapSupported()) return;
+
         if (player is null || !player.IsValid ||
             (player.Team != CsTeam.CounterTerrorist && player.Team != CsTeam.Terrorist))
         {
@@ -433,6 +505,8 @@ public sealed class ILYLeadYouPlugin : BasePlugin
 
     private void OpenTacticMenu(CCSPlayerController player)
     {
+        if (!IsCurrentMapSupported()) return;
+
         var gameRules = GetGameRules();
         if (gameRules?.WarmupPeriod != true && gameRules?.FreezePeriod != true)
         {
@@ -470,7 +544,7 @@ public sealed class ILYLeadYouPlugin : BasePlugin
 
     private void RecordTacticVote(CCSPlayerController player, string tacticId)
     {
-        if (!player.IsValid ||
+        if (!IsCurrentMapSupported() || !player.IsValid ||
             (player.Team != CsTeam.CounterTerrorist && player.Team != CsTeam.Terrorist))
         {
             return;
@@ -539,6 +613,8 @@ public sealed class ILYLeadYouPlugin : BasePlugin
 
     private void OnRoleCommand(CCSPlayerController? player, CommandInfo command)
     {
+        if (!IsCurrentMapSupported()) return;
+
         if (player is { IsValid: true } &&
             (player.Team == CsTeam.CounterTerrorist || player.Team == CsTeam.Terrorist))
         {
@@ -548,6 +624,8 @@ public sealed class ILYLeadYouPlugin : BasePlugin
 
     private void OpenRoleMenu(CCSPlayerController player)
     {
+        if (!IsCurrentMapSupported()) return;
+
         var gameRules = GetGameRules();
         if (gameRules?.WarmupPeriod != true && gameRules?.FreezePeriod != true)
         {
@@ -577,7 +655,7 @@ public sealed class ILYLeadYouPlugin : BasePlugin
 
     private void RecordRole(CCSPlayerController player, int slot)
     {
-        if (!player.IsValid || !_selectedTactics.TryGetValue(player.Team, out var tactic) ||
+        if (!IsCurrentMapSupported() || !player.IsValid || !_selectedTactics.TryGetValue(player.Team, out var tactic) ||
             !tactic.Positions.Any(position => position.Slot == slot))
         {
             return;
@@ -711,7 +789,7 @@ public sealed class ILYLeadYouPlugin : BasePlugin
         if (player.Team == CsTeam.CounterTerrorist || player.Team == CsTeam.Terrorist)
         {
             ShowTeamTactic(player, player.Team);
-            player.PrintToChat("Commandes: .info / !info | .ready / !ready | .ily_tactic / !ily_tactic | .ily_role / !ily_role | .ily_start / !ily_start");
+            player.PrintToChat("Commandes: .info / !info | .ily_ready / !ily_ready | .ily_tactic / !ily_tactic | .ily_role / !ily_role | .ily_start / !ily_start");
         }
         else
         {
