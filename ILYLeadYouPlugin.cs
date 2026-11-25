@@ -152,6 +152,18 @@ public sealed class ILYLeadYouPlugin : BasePlugin
             return HookResult.Handled;
         }
 
+        if (message.Equals(".ily_tactic", StringComparison.OrdinalIgnoreCase))
+        {
+            OnTacticCommand(player, command);
+            return HookResult.Handled;
+        }
+
+        if (message.Equals(".ily_start", StringComparison.OrdinalIgnoreCase))
+        {
+            OnForceStartCommand(player, command);
+            return HookResult.Handled;
+        }
+
         return HookResult.Continue;
     }
 
@@ -407,7 +419,7 @@ public sealed class ILYLeadYouPlugin : BasePlugin
             option.Id.Equals(tacticId, StringComparison.OrdinalIgnoreCase));
         if (selectedOption is null)
         {
-            player.PrintToChat("Ce choix n'est plus disponible; rouvrez le menu avec !ily_tactic.");
+            player.PrintToChat("Ce choix n'est plus disponible; rouvrez le menu avec .ily_tactic.");
             return;
         }
 
@@ -509,12 +521,12 @@ public sealed class ILYLeadYouPlugin : BasePlugin
         if (player.Team == CsTeam.CounterTerrorist || player.Team == CsTeam.Terrorist)
         {
             ShowTeamTactic(player, player.Team);
-            player.PrintToChat("Commandes: .info / !info | .ready / !ready | !ily_tactic | !ily_start");
+            player.PrintToChat("Commandes: .info / !info | .ready / !ready | .ily_tactic / !ily_tactic | .ily_start / !ily_start");
         }
         else
         {
             player.PrintToChat("Les informations tactiques sont réservées aux joueurs de chaque équipe.");
-            player.PrintToChat("Commandes: .info / !info | !ily_start");
+            player.PrintToChat("Commandes: .info / !info | .ily_start / !ily_start");
         }
 
         player.PrintToChat("Cartes: Inferno, Anubis | Choix: Cache, Dust 2, Ancient | Autres: Overpass, Vertigo, Mirage...");
