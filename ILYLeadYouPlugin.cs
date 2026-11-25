@@ -2,7 +2,9 @@ using System.Text.Json;
 using CounterStrikeSharp.API;
 using CounterStrikeSharp.API.Core;
 using CounterStrikeSharp.API.Modules.Commands;
+using CounterStrikeSharp.API.Modules.Extensions;
 using CounterStrikeSharp.API.Modules.Menu;
+using CounterStrikeSharp.API.Modules.Timers;
 using CounterStrikeSharp.API.Modules.Utils;
 using Microsoft.Extensions.Logging;
 
@@ -60,6 +62,7 @@ public sealed class ILYLeadYouPlugin : BasePlugin
     private bool _warmupSetupStarted;
     private bool _warmupSelectionForRound;
     private IlyRoundPhase _ilyRoundPhase;
+    private CCSCustomHudLayout? _hud;
 
     public override string ModuleName => "I Lead You";
     public override string ModuleVersion => "1.0.0";
@@ -76,7 +79,14 @@ public sealed class ILYLeadYouPlugin : BasePlugin
         RegisterListener<Listeners.OnMapStart>(_ =>
         {
             _ilyRoundPhase = IlyRoundPhase.Idle;
+            _hud = null;
             Server.NextFrame(StartWarmupWithoutMatchZy);
+        });
+        RegisterListener<Listeners.OnClientPutInServer>(slot =>
+        {
+            var player = Utilities.GetPlayerFromSlot(slot);
+            if (player is { IsValid: true } && _hud is { IsValid: true })
+                _hud.SetHasClassForPlayer(player, "ily_panel", "visible", false);
         });
         AddCommandListener("say", OnClientSay, HookMode.Pre);
         AddCommandListener("say_team", OnClientSay, HookMode.Pre);
@@ -84,10 +94,16 @@ public sealed class ILYLeadYouPlugin : BasePlugin
         AddCommand("css_ily_role", "Choose your role in the selected tactic.", OnRoleCommand);
         AddCommand("css_ily_ready", "Mark your team ready before starting the ILY match.", OnReadyCommand);
         AddCommand("css_ily_start", "Force the scenario to start without waiting for six players.", OnForceStartCommand);
+        AddTimer(1.0f, RefreshHud, TimerFlags.REPEAT);
     }
 
     public override void OnAllPluginsLoaded(bool hotReload) =>
         Server.NextFrame(StartWarmupWithoutMatchZy);
+
+    public override void Unload(bool hotReload)
+    {
+        if (_hud is { IsValid: true }) _hud.Remove();
+    }
 
     private HookResult OnRoundPrestart(EventRoundPrestart gameEvent, GameEventInfo info)
     {
@@ -762,6 +778,73 @@ public sealed class ILYLeadYouPlugin : BasePlugin
         if (player.InGameMoneyServices is not null)
         {
             player.InGameMoneyServices.Account = cash;
+        }
+    }
+
+    private void RefreshHud()
+    {
+        if (!IsCurrentMapSupported()) return;
+
+        if (_hud is not { IsValid: true })
+        {
+            _hud = Utilities.CreateEntityByName<CCSCustomHudLayout>("custom_hud_layout");
+            if (_hud is null) return;
+            using var keyValues = new CEntityKeyValues();
+            keyValues.SetString("layout", "panorama/layout/custom_game/ily_hud.vxml_c");
+            _hud.DispatchSpawn(keyValues);
+        }
+
+        foreach (var player in Utilities.GetPlayers().Where(player => player.IsValid && !player.IsBot && !player.IsHLTV))
+        {
+            var team = player.Team;
+            if (team != CsTeam.CounterTerrorist && team != CsTeam.Terrorist)
+            {
+                _hud.SetHasClassForPlayer(player, "ily_panel", "visible", false);
+                continue;
+            }
+
+            var economy = _roundEconomies.TryGetValue(team, out var tier)
+                ? $"{tier.ToString().ToUpperInvariant()}  ·  {Economies.First(entry => entry.Tier == tier).Cash:N0}$"
+                : "Économie en attente";
+            _hud.SetDialogVariableStringForPlayer(player, "ily_economy", "value", economy);
+
+            if (_selectedTactics.TryGetValue(team, out var tactic))
+            {
+                _hud.SetDialogVariableStringForPlayer(player, "ily_tactic", "value", tactic.Label);
+                _hud.SetDialogVariableStringForPlayer(player, "ily_status", "value",
+                    GetGameRules()?.WarmupPeriod == true
+                        ? IsTeamReady(team) ? "Équipe prête" : "Choisissez vos rôles · .ily_ready"
+                        : "Plan de manche");
+
+                var teammates = GetHumanPlayers(team);
+                _selectedRoles.TryGetValue(team, out var roles);
+                for (var index = 0; index < 3; index++)
+                {
+                    var position = tactic.Positions.ElementAtOrDefault(index);
+                    var assigned = position is null ? null : teammates.FirstOrDefault(member =>
+                        roles is not null && roles.TryGetValue(member.SteamID, out var slot) && slot == position.Slot);
+                    _hud.SetDialogVariableStringForPlayer(player, $"ily_role_{index + 1}", "value",
+                        position is null ? "" : $"{position.Slot:D2}  {position.Zone}  ·  {assigned?.PlayerName ?? "libre"}");
+                    _hud.SetDialogVariableStringForPlayer(player, $"ily_detail_{index + 1}", "value",
+                        position?.Instruction ?? "");
+                }
+            }
+            else
+            {
+                var teammates = GetHumanPlayers(team);
+                var votes = _tacticVotes.TryGetValue(team, out var teamVotes)
+                    ? teammates.Count(member => teamVotes.ContainsKey(member.SteamID)) : 0;
+                _hud.SetDialogVariableStringForPlayer(player, "ily_tactic", "value", "Tactique à choisir");
+                _hud.SetDialogVariableStringForPlayer(player, "ily_status", "value",
+                    $"Votes {votes}/{teammates.Count}  ·  .ily_tactic");
+                for (var index = 1; index <= 3; index++)
+                {
+                    _hud.SetDialogVariableStringForPlayer(player, $"ily_role_{index}", "value", "");
+                    _hud.SetDialogVariableStringForPlayer(player, $"ily_detail_{index}", "value", "");
+                }
+            }
+
+            _hud.SetHasClassForPlayer(player, "ily_panel", "visible", true);
         }
     }
 

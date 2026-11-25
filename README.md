@@ -13,6 +13,24 @@ actuellement conçu autour d'Inferno. À chaque round, chaque équipe reçoit un
 
 Le serveur doit avoir CounterStrikeSharp et son runtime .NET 10 installés.
 
+## Tableau HUD
+
+Le tableau tactique s'affiche à gauche de l'écran, au niveau des commandes radio.
+Il montre l'économie, le vote ou la tactique retenue, puis les trois rôles et
+leurs instructions. Chaque joueur voit uniquement les données de son équipe.
+Le tableau se masque quand le chat, le menu d'achat ou le scoreboard est ouvert.
+
+Le layout Panorama doit être présent chez les joueurs. Les ressources déjà
+compilées se trouvent dans `hud/compiled/panorama/` : les copier dans
+`game/csgo_addons/ily_hud/panorama/`, puis publier cet addon sur le Workshop.
+Distribuer l'ID Workshop aux clients avec MultiAddonManager
+(`mm_client_extra_addons <ID Workshop>`). Pour modifier le layout, copier les
+sources de `hud/panorama/` dans `content/csgo_addons/ily_hud/panorama/`, puis
+compiler le CSS et le XML avec `game/bin/win64/resourcecompiler.exe -i`.
+Le plugin serveur pointe vers `panorama/layout/custom_game/ily_hud.vxml_c`.
+Sans l'addon côté client, le tableau ne peut pas apparaître; `.info` reste
+disponible dans le chat.
+
 ## Coexistence avec MatchZy
 
 Quand `.ily_start` est lancé ou que les deux équipes ont validé
