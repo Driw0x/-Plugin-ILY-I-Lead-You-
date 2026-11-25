@@ -23,13 +23,19 @@ Le serveur doit avoir CounterStrikeSharp et son runtime .NET 10 installés.
   un message au centre de l'écran; il est aussi envoyé au début du round et
   après une mise à jour.
 - `.ready` ou `!ready` — indique que votre équipe est prête avant le match,
-  pendant la warmup. Une personne de chaque équipe doit le faire; la warmup
-  prend alors fin et la manche démarre avec 15 secondes de freeze time.
+  pendant la warmup, après le vote tactique et le choix d'un rôle par joueur.
+  Une personne de chaque équipe doit le faire; la warmup prend alors fin et
+  la manche démarre avec 15 secondes de freeze time.
   `.ily_ready` et `!ily_ready` fonctionnent aussi. Ces commandes sont
   interceptées par ILY pour éviter la réponse ready de MatchZy.
 - `.ily_tactic` ou `!ily_tactic` — ouvre le menu de vote tactique de votre
-  équipe; le menu s'ouvre aussi automatiquement au début du round. Les choix
-  sont privés et le résultat majoritaire est annoncé uniquement à votre équipe.
+  équipe pendant la warmup ou le freeze time. Le menu s'ouvre aussi
+  automatiquement au début du round. Les choix sont privés et le résultat
+  majoritaire est annoncé uniquement à votre équipe.
+- `.ily_role` ou `!ily_role` — ouvre le choix du rôle dans la tactique retenue.
+  Chaque rôle est attribué à un seul joueur de l'équipe. Au début du premier
+  freeze time, le chat d'équipe affiche le pseudo et l'instruction de chaque
+  joueur selon son rôle choisi pendant la warmup.
 
 À chaque round, chaque équipe reçoit au hasard un budget identique pour ses
 joueurs: Eco (800$), Lowbuy (2 500$), Force (3 500$) ou Full (5 000$). Le
