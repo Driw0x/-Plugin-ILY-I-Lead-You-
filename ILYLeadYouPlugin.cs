@@ -453,9 +453,10 @@ public sealed class ILYLeadYouPlugin : BasePlugin
         }
 
         var economy = _roundEconomies[player.Team];
-        var menu = new CenterHtmlMenu($"Tactique {economy}", this)
+        var menu = new ChatMenu($"Tactique {economy}")
         {
-            PostSelectAction = PostSelectAction.Close
+            PostSelectAction = PostSelectAction.Close,
+            ExitButton = true
         };
 
         foreach (var option in options)
@@ -560,9 +561,10 @@ public sealed class ILYLeadYouPlugin : BasePlugin
             return;
         }
 
-        var menu = new CenterHtmlMenu($"Rôle: {tactic.Label}", this)
+        var menu = new ChatMenu($"Rôle: {tactic.Label}")
         {
-            PostSelectAction = PostSelectAction.Close
+            PostSelectAction = PostSelectAction.Close,
+            ExitButton = true
         };
         foreach (var position in tactic.Positions)
         {

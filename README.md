@@ -37,6 +37,9 @@ Le serveur doit avoir CounterStrikeSharp et son runtime .NET 10 installés.
   freeze time, le chat d'équipe affiche le pseudo et l'instruction de chaque
   joueur selon son rôle choisi pendant la warmup.
 
+Les menus de tactique et de rôle s'affichent dans le chat du joueur concerné,
+sans être envoyés à l'équipe adverse.
+
 À chaque round, chaque équipe reçoit au hasard un budget identique pour ses
 joueurs: Eco (800$), Lowbuy (2 500$), Force (3 500$) ou Full (5 000$). Le
 budget des CT et des Terros est toujours différent et l'argent est attribué au
