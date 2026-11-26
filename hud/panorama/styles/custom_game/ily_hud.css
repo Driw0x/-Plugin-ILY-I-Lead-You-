@@ -56,6 +56,20 @@
     color: #a9c1ce;
 }
 
+.ily-options {
+    width: 100%;
+    flow-children: down;
+    margin-top: 8px;
+}
+
+.ily-option {
+    width: 100%;
+    font-size: 14px;
+    color: #f5d187;
+    margin-top: 3px;
+    text-overflow: ellipsis;
+}
+
 .ily-positions {
     width: 100%;
     flow-children: down;

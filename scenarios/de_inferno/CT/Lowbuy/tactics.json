@@ -1,23 +1,175 @@
 {
   "tactics": [
     {
-      "id": "banana-setup",
-      "label": "Contrôle Banane",
+      "id": "a-pari",
+      "label": "Pari sur site A",
       "map": "de_inferno",
       "positions": [
-        { "slot": 1, "zone": "Banana", "instruction": "Contester l'avancée avec l'utilitaire.", "spawn": null },
-        { "slot": 2, "zone": "Site B", "instruction": "Jouer le trade et protéger le site.", "spawn": null },
-        { "slot": 3, "zone": "Arch", "instruction": "Garder la rotation vers B ou A.", "spawn": null }
+        {
+          "slot": 1,
+          "zone": "Pit",
+          "instruction": "Tenir Long A sans prendre de duel isolé.",
+          "spawn": null
+        },
+        {
+          "slot": 2,
+          "zone": "Arch",
+          "instruction": "Surveiller Mid et aider le joueur A.",
+          "spawn": null
+        },
+        {
+          "slot": 3,
+          "zone": "Site B",
+          "instruction": "Jouer le crossfire avec la rotation.",
+          "spawn": null
+        }
+      ],
+      "site": "A",
+      "intentions": [
+        {
+          "slot": 1,
+          "zone": "Tenir site A",
+          "instruction": "Concentrer la défense sur le site A."
+        },
+        {
+          "slot": 2,
+          "zone": "Prendre l’information",
+          "instruction": "Chercher l’information et annoncer rapidement le contact."
+        },
+        {
+          "slot": 3,
+          "zone": "Préparer la rotation A",
+          "instruction": "Garder une personne prête à tourner vers le site A."
+        }
       ]
     },
     {
-      "id": "default",
-      "label": "Défense équilibrée",
+      "id": "a-rotation",
+      "label": "Joueur prêt à tourner vers A",
       "map": "de_inferno",
       "positions": [
-        { "slot": 1, "zone": "Pit", "instruction": "Tenir Long A sans prendre de duel isolé.", "spawn": null },
-        { "slot": 2, "zone": "Arch", "instruction": "Surveiller Mid et aider le joueur A.", "spawn": null },
-        { "slot": 3, "zone": "Site B", "instruction": "Jouer le crossfire avec la rotation.", "spawn": null }
+        {
+          "slot": 1,
+          "zone": "Pit",
+          "instruction": "Tenir Long A sans prendre de duel isolé.",
+          "spawn": null
+        },
+        {
+          "slot": 2,
+          "zone": "Arch",
+          "instruction": "Surveiller Mid et aider le joueur A.",
+          "spawn": null
+        },
+        {
+          "slot": 3,
+          "zone": "Rotation A",
+          "instruction": "Rester prêt à tourner vers le site A et annoncer les informations.",
+          "spawn": null
+        }
+      ],
+      "site": "A",
+      "intentions": [
+        {
+          "slot": 1,
+          "zone": "Tenir site A",
+          "instruction": "Concentrer la défense sur le site A."
+        },
+        {
+          "slot": 2,
+          "zone": "Prendre l’information",
+          "instruction": "Chercher l’information et annoncer rapidement le contact."
+        },
+        {
+          "slot": 3,
+          "zone": "Préparer la rotation A",
+          "instruction": "Garder une personne prête à tourner vers le site A."
+        }
+      ]
+    },
+    {
+      "id": "b-pari",
+      "label": "Pari sur site B",
+      "map": "de_inferno",
+      "positions": [
+        {
+          "slot": 1,
+          "zone": "Banana",
+          "instruction": "Contester l'avancée avec l'utilitaire.",
+          "spawn": null
+        },
+        {
+          "slot": 2,
+          "zone": "Site B",
+          "instruction": "Jouer le trade et protéger le site.",
+          "spawn": null
+        },
+        {
+          "slot": 3,
+          "zone": "Arch",
+          "instruction": "Garder la rotation vers B ou A.",
+          "spawn": null
+        }
+      ],
+      "site": "B",
+      "intentions": [
+        {
+          "slot": 1,
+          "zone": "Tenir site B",
+          "instruction": "Concentrer la défense sur le site B."
+        },
+        {
+          "slot": 2,
+          "zone": "Prendre l’information",
+          "instruction": "Chercher l’information et annoncer rapidement le contact."
+        },
+        {
+          "slot": 3,
+          "zone": "Préparer la rotation B",
+          "instruction": "Garder une personne prête à tourner vers le site B."
+        }
+      ]
+    },
+    {
+      "id": "b-rotation",
+      "label": "Joueur prêt à tourner vers B",
+      "map": "de_inferno",
+      "positions": [
+        {
+          "slot": 1,
+          "zone": "Banana",
+          "instruction": "Contester l'avancée avec l'utilitaire.",
+          "spawn": null
+        },
+        {
+          "slot": 2,
+          "zone": "Site B",
+          "instruction": "Jouer le trade et protéger le site.",
+          "spawn": null
+        },
+        {
+          "slot": 3,
+          "zone": "Rotation B",
+          "instruction": "Rester prêt à tourner vers le site B et annoncer les informations.",
+          "spawn": null
+        }
+      ],
+      "site": "B",
+      "intentions": [
+        {
+          "slot": 1,
+          "zone": "Tenir site B",
+          "instruction": "Concentrer la défense sur le site B."
+        },
+        {
+          "slot": 2,
+          "zone": "Prendre l’information",
+          "instruction": "Chercher l’information et annoncer rapidement le contact."
+        },
+        {
+          "slot": 3,
+          "zone": "Préparer la rotation B",
+          "instruction": "Garder une personne prête à tourner vers le site B."
+        }
       ]
     }
   ]

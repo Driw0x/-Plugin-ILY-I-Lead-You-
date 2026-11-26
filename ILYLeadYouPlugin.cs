@@ -34,7 +34,9 @@ public sealed class ILYLeadYouPlugin : BasePlugin
         public string Id { get; set; } = "";
         public string Label { get; set; } = "";
         public string Map { get; set; } = "";
+        public string Site { get; set; } = "";
         public List<TacticalPosition> Positions { get; set; } = [];
+        public List<TacticalPosition> Intentions { get; set; } = [];
     }
 
     private sealed class TacticalPosition
@@ -55,6 +57,15 @@ public sealed class ILYLeadYouPlugin : BasePlugin
 
     private readonly Dictionary<(string Map, CsTeam Team, EconomyTier Tier), List<TacticalOption>> _tacticCatalogs = [];
     private readonly Dictionary<CsTeam, Dictionary<ulong, string>> _tacticVotes = [];
+    private readonly Dictionary<ulong, string> _siteVotes = [];
+    private readonly Dictionary<ulong, string> _modeVotes = [];
+    private readonly Dictionary<ulong, TacticalOption> _personalTactics = [];
+    private readonly Dictionary<ulong, int> _personalZones = [];
+    private readonly Dictionary<ulong, int> _intentVotes = [];
+    private string? _selectedSite;
+    private string? _selectedMode;
+    private int? _selectedIntent;
+    private bool _sessionActive;
     private readonly Dictionary<CsTeam, TacticalOption> _selectedTactics = [];
     private readonly Dictionary<CsTeam, Dictionary<ulong, int>> _selectedRoles = [];
     private readonly Dictionary<CsTeam, EconomyTier> _roundEconomies = [];
@@ -79,6 +90,8 @@ public sealed class ILYLeadYouPlugin : BasePlugin
         RegisterListener<Listeners.OnMapStart>(_ =>
         {
             _ilyRoundPhase = IlyRoundPhase.Idle;
+            _sessionActive = false;
+            ClearSelections();
             _hud = null;
             Server.NextFrame(StartWarmupWithoutMatchZy);
         });
@@ -94,6 +107,7 @@ public sealed class ILYLeadYouPlugin : BasePlugin
         AddCommand("css_ily_role", "Choose your role in the selected tactic.", OnRoleCommand);
         AddCommand("css_ily_ready", "Mark your team ready before starting the ILY match.", OnReadyCommand);
         AddCommand("css_ily_start", "Force the scenario to start without waiting for six players.", OnForceStartCommand);
+        AddCommand("css_ily_stop", "Stop the ILY session.", OnStopCommand);
         AddTimer(1.0f, RefreshHud, TimerFlags.REPEAT);
     }
 
@@ -107,7 +121,7 @@ public sealed class ILYLeadYouPlugin : BasePlugin
 
     private HookResult OnRoundPrestart(EventRoundPrestart gameEvent, GameEventInfo info)
     {
-        if (!IsCurrentMapSupported()) return HookResult.Continue;
+        if (!IsCurrentMapSupported() || !_sessionActive) return HookResult.Continue;
 
         var warmup = GetGameRules()?.WarmupPeriod == true;
         if (_warmupSetupStarted)
@@ -124,15 +138,18 @@ public sealed class ILYLeadYouPlugin : BasePlugin
         }
 
         _warmupSelectionForRound = false;
-        _tacticVotes.Clear();
-        _selectedTactics.Clear();
-        _selectedRoles.Clear();
-        _roundEconomies.Clear();
+        ClearSelections();
         if (warmup)
         {
             _teamReadyPlayers.Clear();
         }
 
+        SelectEconomies();
+        return HookResult.Continue;
+    }
+
+    private void SelectEconomies()
+    {
         var ctEconomyIndex = Random.Shared.Next(Economies.Length);
         var terroristEconomyIndex = Random.Shared.Next(Economies.Length - 1);
         if (terroristEconomyIndex >= ctEconomyIndex)
@@ -144,37 +161,23 @@ public sealed class ILYLeadYouPlugin : BasePlugin
         _roundEconomies[CsTeam.Terrorist] = Economies[terroristEconomyIndex].Tier;
         ApplyEconomy(CsTeam.CounterTerrorist);
         ApplyEconomy(CsTeam.Terrorist);
-
-        return HookResult.Continue;
     }
 
     private HookResult OnRoundStart(EventRoundStart gameEvent, GameEventInfo info)
     {
-        if (!IsCurrentMapSupported()) return HookResult.Continue;
+        if (!IsCurrentMapSupported() || !_sessionActive) return HookResult.Continue;
 
         ApplyEconomy(CsTeam.CounterTerrorist);
         ApplyEconomy(CsTeam.Terrorist);
         ShowScenarioToPlayers();
         var gameRules = GetGameRules();
-        var warmup = gameRules?.WarmupPeriod == true;
         if (_ilyRoundPhase == IlyRoundPhase.Starting && gameRules?.WarmupPeriod == false)
         {
             _ilyRoundPhase = IlyRoundPhase.Playing;
         }
 
-        if (_warmupSelectionForRound)
-        {
-            AnnounceRoleInstructions();
-            Server.NextFrame(OpenIncompleteMenus);
-        }
-        else if (warmup)
-        {
-            Server.NextFrame(OpenIncompleteMenus);
-        }
-        else
-        {
-            Server.NextFrame(OpenTacticMenus);
-        }
+        if (_warmupSelectionForRound) AnnounceChoices();
+        Server.NextFrame(OpenIncompleteMenus);
         return HookResult.Continue;
     }
 
@@ -183,7 +186,9 @@ public sealed class ILYLeadYouPlugin : BasePlugin
         if (_ilyRoundPhase == IlyRoundPhase.Playing)
         {
             _ilyRoundPhase = IlyRoundPhase.Idle;
+            _sessionActive = false;
             _warmupSetupStarted = false;
+            ClearSelections();
             Server.NextFrame(() =>
             {
                 if (IsMatchZyInstalled()) Server.ExecuteCommand("css_match");
@@ -258,6 +263,12 @@ public sealed class ILYLeadYouPlugin : BasePlugin
             return HookResult.Handled;
         }
 
+        if (message.Equals(".ily_stop", StringComparison.OrdinalIgnoreCase))
+        {
+            OnStopCommand(player, command);
+            return HookResult.Handled;
+        }
+
         return HookResult.Continue;
     }
 
@@ -271,7 +282,7 @@ public sealed class ILYLeadYouPlugin : BasePlugin
 
     private void HandleReady(CCSPlayerController player)
     {
-        if (!IsCurrentMapSupported()) return;
+        if (!IsCurrentMapSupported() || !_sessionActive) return;
 
         if (player.Team != CsTeam.CounterTerrorist && player.Team != CsTeam.Terrorist)
         {
@@ -286,11 +297,9 @@ public sealed class ILYLeadYouPlugin : BasePlugin
             return;
         }
 
-        if (!_selectedTactics.ContainsKey(player.Team) ||
-            !_selectedRoles.TryGetValue(player.Team, out var roles) ||
-            GetHumanPlayers(player.Team).Any(member => !roles.ContainsKey(member.SteamID)))
+        if (!IsTeamSelectionComplete(player.Team))
         {
-            player.PrintToChat("Choisissez d'abord une tactique et un rôle pour chaque joueur de votre équipe.");
+            player.PrintToChat("Terminez tous les choix de votre équipe avant .ily_ready.");
             return;
         }
 
@@ -310,15 +319,52 @@ public sealed class ILYLeadYouPlugin : BasePlugin
     private bool IsTeamReady(CsTeam team)
     {
         if (!_teamReadyPlayers.TryGetValue(team, out var readyPlayerId) ||
-            !_selectedTactics.ContainsKey(team) ||
-            !_selectedRoles.TryGetValue(team, out var roles))
+            !IsTeamSelectionComplete(team))
         {
             return false;
         }
 
         var players = GetHumanPlayers(team);
-        return players.Any(player => player.SteamID == readyPlayerId) &&
+        return players.Any(player => player.SteamID == readyPlayerId);
+    }
+
+    private bool IsTeamSelectionComplete(CsTeam team)
+    {
+        var players = GetHumanPlayers(team);
+        if (players.Count == 0) return false;
+        if (team == CsTeam.CounterTerrorist)
+        {
+            if (_selectedSite is null || (_roundEconomies.GetValueOrDefault(team) == EconomyTier.Lowbuy && _selectedMode is null))
+                return false;
+            return IsIndividualCtMode()
+                ? players.All(player => _personalTactics.ContainsKey(player.SteamID) && _personalZones.ContainsKey(player.SteamID))
+                : _selectedTactics.ContainsKey(team) && _selectedIntent is not null;
+        }
+
+        return _selectedTactics.ContainsKey(team) &&
+            _selectedRoles.TryGetValue(team, out var roles) &&
             players.All(player => roles.ContainsKey(player.SteamID));
+    }
+
+    private bool IsIndividualCtMode() =>
+        _roundEconomies.GetValueOrDefault(CsTeam.CounterTerrorist) is EconomyTier.Full or EconomyTier.Force ||
+        _selectedMode == "zones";
+
+    private void ClearSelections()
+    {
+        _tacticVotes.Clear();
+        _siteVotes.Clear();
+        _modeVotes.Clear();
+        _personalTactics.Clear();
+        _personalZones.Clear();
+        _intentVotes.Clear();
+        _selectedSite = null;
+        _selectedMode = null;
+        _selectedIntent = null;
+        _selectedTactics.Clear();
+        _selectedRoles.Clear();
+        _roundEconomies.Clear();
+        _teamReadyPlayers.Clear();
     }
 
     private static CCSGameRules? GetGameRules() =>
@@ -389,7 +435,10 @@ public sealed class ILYLeadYouPlugin : BasePlugin
                     try
                     {
                         var catalog = JsonSerializer.Deserialize<TacticCatalog>(File.ReadAllText(filePath), jsonOptions);
-                        if (catalog is null || !IsValidCatalog(catalog))
+                        if (catalog is null || !IsValidCatalog(catalog) ||
+                            (team == CsTeam.CounterTerrorist &&
+                             (catalog.Tactics.Any(option => option.Site is not ("A" or "B") || option.Intentions.Count == 0) ||
+                              !new[] { "A", "B" }.All(site => catalog.Tactics.Any(option => option.Site == site)))))
                         {
                             Logger.LogError("Tactic configuration is empty or invalid for map {Map}: {FilePath}", mapName, filePath);
                             continue;
@@ -463,8 +512,32 @@ public sealed class ILYLeadYouPlugin : BasePlugin
             return;
         }
 
-        player?.PrintToChat("Démarrage forcé du scénario avec 15 secondes de freeze time.");
-        StartMatchAfterReady();
+        if (_sessionActive)
+        {
+            player?.PrintToChat("La procédure ILY est déjà ouverte.");
+            return;
+        }
+
+        _sessionActive = true;
+        _warmupSetupStarted = true;
+        ClearSelections();
+        SelectEconomies();
+        Broadcast("ILY: choisissez vos plans, puis une personne par équipe utilise .ily_ready.");
+        OpenIncompleteMenus();
+    }
+
+    private void OnStopCommand(CCSPlayerController? player, CommandInfo command)
+    {
+        if (!_sessionActive) return;
+        var wasPlaying = _ilyRoundPhase != IlyRoundPhase.Idle;
+        _sessionActive = false;
+        _ilyRoundPhase = IlyRoundPhase.Idle;
+        _warmupSetupStarted = false;
+        _warmupSelectionForRound = false;
+        ClearSelections();
+        Broadcast("Session ILY arrêtée.");
+        if (IsMatchZyInstalled() && wasPlaying) Server.ExecuteCommand("css_match");
+        else if (!IsMatchZyInstalled()) StartWarmupWithoutMatchZy();
     }
 
     private void StartMatchAfterReady()
@@ -502,34 +575,56 @@ public sealed class ILYLeadYouPlugin : BasePlugin
         OpenTacticMenu(player);
     }
 
-    private void OpenTacticMenus()
-    {
-        foreach (var team in new[] { CsTeam.CounterTerrorist, CsTeam.Terrorist })
-        {
-            foreach (var player in GetHumanPlayers(team))
-            {
-                OpenTacticMenu(player);
-            }
-        }
-    }
-
     private void OpenTacticMenu(CCSPlayerController player)
     {
         if (!IsCurrentMapSupported()) return;
+        if (!_sessionActive) return;
 
         var gameRules = GetGameRules();
-        if (gameRules?.WarmupPeriod != true && gameRules?.FreezePeriod != true)
+        if (gameRules?.WarmupPeriod != true || _ilyRoundPhase != IlyRoundPhase.Idle || IsTeamReady(player.Team))
         {
-            player.PrintToChat("Le choix de tactique est disponible pendant le warmup ou le freeze time.");
+            player.PrintToChat("Les choix sont fermés pour votre équipe.");
+            return;
+        }
+        if (gameRules?.WarmupPeriod == true) _warmupSetupStarted = true;
+
+        if (player.Team == CsTeam.Terrorist && _selectedTactics.ContainsKey(player.Team))
+        {
+            if (!_selectedRoles.TryGetValue(player.Team, out var roles) || !roles.ContainsKey(player.SteamID))
+                OpenRoleMenu(player);
+            else player.PrintToChat("Votre rôle est déjà choisi.");
             return;
         }
 
-        if (gameRules?.WarmupPeriod == true)
+        if (player.Team == CsTeam.CounterTerrorist && _selectedSite is null)
         {
-            _warmupSetupStarted = true;
+            OpenSiteMenu(player);
+            return;
+        }
+        if (player.Team == CsTeam.CounterTerrorist &&
+            _roundEconomies.GetValueOrDefault(player.Team) == EconomyTier.Lowbuy && _selectedMode is null)
+        {
+            OpenModeMenu(player);
+            return;
+        }
+        if (player.Team == CsTeam.CounterTerrorist && IsIndividualCtMode())
+        {
+            OpenPersonalCtMenu(player);
+            return;
+        }
+        if (player.Team == CsTeam.CounterTerrorist &&
+            _selectedTactics.TryGetValue(player.Team, out var selected) && _selectedIntent is null)
+        {
+            OpenIntentMenu(player, selected);
+            return;
+        }
+        if (player.Team == CsTeam.CounterTerrorist && _selectedTactics.ContainsKey(player.Team))
+        {
+            player.PrintToChat("Le plan commun CT est déjà choisi.");
+            return;
         }
 
-        var options = GetAvailableTactics(player.Team);
+        var options = GetCurrentTactics(player.Team);
         if (options.Count == 0)
         {
             player.PrintToChat("Aucune tactique n'est configurée pour l'économie de votre équipe.");
@@ -552,22 +647,139 @@ public sealed class ILYLeadYouPlugin : BasePlugin
         menu.Open(player);
     }
 
+    private List<TacticalOption> GetCurrentTactics(CsTeam team) =>
+        team == CsTeam.CounterTerrorist
+            ? GetAvailableTactics(team).Where(option => option.Site.Equals(_selectedSite, StringComparison.OrdinalIgnoreCase)).ToList()
+            : GetAvailableTactics(team);
+
+    private void OpenSiteMenu(CCSPlayerController player)
+    {
+        var menu = new ChatMenu("CT: site A ou B") { PostSelectAction = PostSelectAction.Close };
+        foreach (var site in new[] { "A", "B" })
+            menu.AddMenuOption($"Site {site}", (voter, _) => RecordSiteVote(voter, site));
+        menu.Open(player);
+    }
+
+    private void RecordSiteVote(CCSPlayerController player, string site)
+    {
+        if (!CanChoose(player.Team) || player.Team != CsTeam.CounterTerrorist || _selectedSite is not null) return;
+        _siteVotes[player.SteamID] = site;
+        if (TryMajority(CsTeam.CounterTerrorist, _siteVotes, out var winner))
+        {
+            _selectedSite = winner;
+            BroadcastToTeam(player.Team, $"Site CT choisi: {winner}.");
+            OpenIncompleteMenus(player.Team);
+        }
+    }
+
+    private void OpenModeMenu(CCSPlayerController player)
+    {
+        var menu = new ChatMenu("CT Lowbuy: mode") { PostSelectAction = PostSelectAction.Close };
+        menu.AddMenuOption("Zones individuelles", (voter, _) => RecordModeVote(voter, "zones"));
+        menu.AddMenuOption("Intention collective", (voter, _) => RecordModeVote(voter, "intention"));
+        menu.Open(player);
+    }
+
+    private void RecordModeVote(CCSPlayerController player, string mode)
+    {
+        if (!CanChoose(player.Team) || player.Team != CsTeam.CounterTerrorist || _selectedMode is not null) return;
+        _modeVotes[player.SteamID] = mode;
+        if (TryMajority(player.Team, _modeVotes, out var winner))
+        {
+            _selectedMode = winner;
+            BroadcastToTeam(player.Team, $"Mode Lowbuy CT: {winner}.");
+            OpenIncompleteMenus(player.Team);
+        }
+    }
+
+    private bool TryMajority(CsTeam team, Dictionary<ulong, string> votes, out string winner)
+    {
+        winner = "";
+        var players = GetHumanPlayers(team);
+        if (players.Count == 0 || players.Any(member => !votes.ContainsKey(member.SteamID))) return false;
+        var leading = players.GroupBy(member => votes[member.SteamID]).OrderByDescending(group => group.Count()).First();
+        if (leading.Count() <= players.Count / 2)
+        {
+            votes.Clear();
+            BroadcastToTeam(team, "Égalité: revote nécessaire.");
+            OpenIncompleteMenus(team);
+            return false;
+        }
+        winner = leading.Key;
+        return true;
+    }
+
+    private void OpenPersonalCtMenu(CCSPlayerController player)
+    {
+        if (_personalTactics.TryGetValue(player.SteamID, out var tactic))
+        {
+            OpenZoneMenu(player, tactic);
+            return;
+        }
+        var menu = new ChatMenu($"CT site {_selectedSite}: approche") { PostSelectAction = PostSelectAction.Close };
+        foreach (var option in GetCurrentTactics(player.Team))
+            menu.AddMenuOption(option.Label, (voter, _) =>
+            {
+                if (!CanChoose(voter.Team) || voter.Team != CsTeam.CounterTerrorist || !GetCurrentTactics(voter.Team).Contains(option)) return;
+                _personalTactics[voter.SteamID] = option;
+                OpenZoneMenu(voter, option);
+            });
+        menu.Open(player);
+    }
+
+    private void OpenZoneMenu(CCSPlayerController player, TacticalOption tactic)
+    {
+        var menu = new ChatMenu("CT: votre zone") { PostSelectAction = PostSelectAction.Close };
+        foreach (var position in tactic.Positions)
+            menu.AddMenuOption(position.Zone, (voter, _) =>
+            {
+                if (!CanChoose(voter.Team) || !_personalTactics.TryGetValue(voter.SteamID, out var current) || current != tactic) return;
+                _personalZones[voter.SteamID] = position.Slot;
+                voter.PrintToChat($"Votre zone: {position.Zone}. Communiquez votre choix pendant le freeze time.");
+            });
+        menu.Open(player);
+    }
+
+    private void OpenIntentMenu(CCSPlayerController player, TacticalOption tactic)
+    {
+        var menu = new ChatMenu("CT: intention commune") { PostSelectAction = PostSelectAction.Close };
+        foreach (var position in tactic.Intentions)
+            menu.AddMenuOption(position.Zone, (voter, _) => RecordIntentVote(voter, tactic, position.Slot));
+        menu.Open(player);
+    }
+
+    private void RecordIntentVote(CCSPlayerController player, TacticalOption tactic, int slot)
+    {
+        if (!CanChoose(player.Team) || player.Team != CsTeam.CounterTerrorist ||
+            !_selectedTactics.TryGetValue(player.Team, out var current) || current != tactic || _selectedIntent is not null) return;
+        _intentVotes[player.SteamID] = slot;
+        var players = GetHumanPlayers(player.Team);
+        if (players.Any(member => !_intentVotes.ContainsKey(member.SteamID))) return;
+        var leading = players.GroupBy(member => _intentVotes[member.SteamID]).OrderByDescending(group => group.Count()).First();
+        if (leading.Count() <= players.Count / 2)
+        {
+            _intentVotes.Clear();
+            BroadcastToTeam(player.Team, "Égalité: revote de l'intention.");
+            OpenIncompleteMenus(player.Team);
+            return;
+        }
+        _selectedIntent = leading.Key;
+        BroadcastToTeam(player.Team, $"Intention CT: {tactic.Intentions.First(position => position.Slot == _selectedIntent).Zone}.");
+    }
+
+    private bool CanChoose(CsTeam team) => _sessionActive && _ilyRoundPhase == IlyRoundPhase.Idle &&
+        GetGameRules()?.WarmupPeriod == true && !IsTeamReady(team);
+
     private void RecordTacticVote(CCSPlayerController player, string tacticId)
     {
-        if (!IsCurrentMapSupported() || !player.IsValid ||
+        if (!IsCurrentMapSupported() || !CanChoose(player.Team) || !player.IsValid ||
+            _selectedTactics.ContainsKey(player.Team) ||
             (player.Team != CsTeam.CounterTerrorist && player.Team != CsTeam.Terrorist))
         {
             return;
         }
 
-        var gameRules = GetGameRules();
-        if (gameRules?.WarmupPeriod != true && gameRules?.FreezePeriod != true)
-        {
-            player.PrintToChat("Le vote est fermé: warmup et freeze time terminés.");
-            return;
-        }
-
-        var options = GetAvailableTactics(player.Team);
+        var options = GetCurrentTactics(player.Team);
         var selectedOption = options.FirstOrDefault(option =>
             option.Id.Equals(tacticId, StringComparison.OrdinalIgnoreCase));
         if (selectedOption is null)
@@ -601,9 +813,8 @@ public sealed class ILYLeadYouPlugin : BasePlugin
 
                 BroadcastToTeam(player.Team, $"Tactique retenue: {winner.Label}.");
                 foreach (var member in teamPlayers)
-                {
-                    OpenRoleMenu(member);
-                }
+                    if (player.Team == CsTeam.CounterTerrorist) OpenIntentMenu(member, winner);
+                    else OpenRoleMenu(member);
             }
             else
             {
@@ -625,8 +836,7 @@ public sealed class ILYLeadYouPlugin : BasePlugin
     {
         if (!IsCurrentMapSupported()) return;
 
-        if (player is { IsValid: true } &&
-            (player.Team == CsTeam.CounterTerrorist || player.Team == CsTeam.Terrorist))
+        if (player is { IsValid: true } && player.Team == CsTeam.Terrorist)
         {
             OpenRoleMenu(player);
         }
@@ -636,10 +846,9 @@ public sealed class ILYLeadYouPlugin : BasePlugin
     {
         if (!IsCurrentMapSupported()) return;
 
-        var gameRules = GetGameRules();
-        if (gameRules?.WarmupPeriod != true && gameRules?.FreezePeriod != true)
+        if (!CanChoose(player.Team))
         {
-            player.PrintToChat("Le choix du rôle est disponible pendant le warmup ou le freeze time.");
+            player.PrintToChat("Les choix sont fermés pour votre équipe.");
             return;
         }
 
@@ -671,11 +880,7 @@ public sealed class ILYLeadYouPlugin : BasePlugin
             return;
         }
 
-        var gameRules = GetGameRules();
-        if (gameRules?.WarmupPeriod != true && gameRules?.FreezePeriod != true)
-        {
-            return;
-        }
+        if (!CanChoose(player.Team)) return;
 
         if (!_selectedRoles.TryGetValue(player.Team, out var roles))
         {
@@ -701,25 +906,49 @@ public sealed class ILYLeadYouPlugin : BasePlugin
     private void OpenIncompleteMenus()
     {
         foreach (var team in new[] { CsTeam.CounterTerrorist, CsTeam.Terrorist })
+            OpenIncompleteMenus(team);
+    }
+
+    private void OpenIncompleteMenus(CsTeam team)
+    {
+        if (!CanChoose(team)) return;
+        foreach (var player in GetHumanPlayers(team))
         {
-            foreach (var player in GetHumanPlayers(team))
+            if (team == CsTeam.CounterTerrorist)
             {
-                if (!_selectedTactics.ContainsKey(team))
-                {
+                if (_selectedSite is null ||
+                    (_roundEconomies.GetValueOrDefault(team) == EconomyTier.Lowbuy && _selectedMode is null) ||
+                    (IsIndividualCtMode() && !_personalZones.ContainsKey(player.SteamID)) ||
+                    (!IsIndividualCtMode() && !_selectedTactics.ContainsKey(team)))
                     OpenTacticMenu(player);
-                }
-                else if (!_selectedRoles.TryGetValue(team, out var roles) || !roles.ContainsKey(player.SteamID))
-                {
-                    OpenRoleMenu(player);
-                }
+                else if (!IsIndividualCtMode() && _selectedIntent is null)
+                    OpenIntentMenu(player, _selectedTactics[team]);
             }
+            else if (!_selectedTactics.ContainsKey(team)) OpenTacticMenu(player);
+            else if (!_selectedRoles.TryGetValue(team, out var roles) || !roles.ContainsKey(player.SteamID))
+                OpenRoleMenu(player);
         }
     }
 
-    private void AnnounceRoleInstructions()
+    private void AnnounceChoices()
     {
-        AnnounceRoleInstructions(CsTeam.CounterTerrorist);
         AnnounceRoleInstructions(CsTeam.Terrorist);
+        if (_selectedSite is not null) BroadcastToTeam(CsTeam.CounterTerrorist, $"Site CT: {_selectedSite}.");
+        if (IsIndividualCtMode())
+        {
+            foreach (var player in GetHumanPlayers(CsTeam.CounterTerrorist))
+                if (_personalTactics.TryGetValue(player.SteamID, out var tactic) &&
+                    _personalZones.TryGetValue(player.SteamID, out var slot))
+                {
+                    var position = tactic.Positions.First(item => item.Slot == slot);
+                    player.PrintToChat($"Votre plan: {tactic.Label} — {position.Zone}: {position.Instruction}");
+                }
+        }
+        else if (_selectedTactics.TryGetValue(CsTeam.CounterTerrorist, out var collective) && _selectedIntent is int intent)
+        {
+            var position = collective.Intentions.First(item => item.Slot == intent);
+            BroadcastToTeam(CsTeam.CounterTerrorist, $"Plan commun: {collective.Label} — {position.Zone}: {position.Instruction}");
+        }
     }
 
     private void AnnounceRoleInstructions(CsTeam team)
@@ -803,45 +1032,100 @@ public sealed class ILYLeadYouPlugin : BasePlugin
                 continue;
             }
 
+            if (!_sessionActive)
+            {
+                _hud.SetHasClassForPlayer(player, "ily_panel", "visible", false);
+                continue;
+            }
+
             var economy = _roundEconomies.TryGetValue(team, out var tier)
                 ? $"{tier.ToString().ToUpperInvariant()}  ·  {Economies.First(entry => entry.Tier == tier).Cash:N0}$"
                 : "Économie en attente";
             _hud.SetDialogVariableStringForPlayer(player, "ily_economy", "value", economy);
 
-            if (_selectedTactics.TryGetValue(team, out var tactic))
+            var choices = new List<string>();
+            var title = "Choix en cours";
+            var status = IsTeamReady(team) ? "Équipe prête" : "Terminez les choix · .ily_ready";
+            var rows = new List<(string Name, string Detail)>();
+            if (team == CsTeam.CounterTerrorist)
             {
-                _hud.SetDialogVariableStringForPlayer(player, "ily_tactic", "value", tactic.Label);
-                _hud.SetDialogVariableStringForPlayer(player, "ily_status", "value",
-                    GetGameRules()?.WarmupPeriod == true
-                        ? IsTeamReady(team) ? "Équipe prête" : "Choisissez vos rôles · .ily_ready"
-                        : "Plan de manche");
-
-                var teammates = GetHumanPlayers(team);
-                _selectedRoles.TryGetValue(team, out var roles);
-                for (var index = 0; index < 3; index++)
+                if (_selectedSite is null)
                 {
-                    var position = tactic.Positions.ElementAtOrDefault(index);
-                    var assigned = position is null ? null : teammates.FirstOrDefault(member =>
-                        roles is not null && roles.TryGetValue(member.SteamID, out var slot) && slot == position.Slot);
-                    _hud.SetDialogVariableStringForPlayer(player, $"ily_role_{index + 1}", "value",
-                        position is null ? "" : $"{position.Slot:D2}  {position.Zone}  ·  {assigned?.PlayerName ?? "libre"}");
-                    _hud.SetDialogVariableStringForPlayer(player, $"ily_detail_{index + 1}", "value",
-                        position?.Instruction ?? "");
+                    title = "CT · Site A ou B";
+                    choices.AddRange(["Site A", "Site B"]);
                 }
+                else if (_roundEconomies.GetValueOrDefault(team) == EconomyTier.Lowbuy && _selectedMode is null)
+                {
+                    title = $"CT · Site {_selectedSite}";
+                    choices.AddRange(["Zones individuelles", "Intention collective"]);
+                }
+                else if (IsIndividualCtMode())
+                {
+                    if (!_personalTactics.TryGetValue(player.SteamID, out var personal))
+                    {
+                        title = $"CT · Site {_selectedSite} · Approche";
+                        choices.AddRange(GetCurrentTactics(team).Select(option => option.Label));
+                    }
+                    else if (!_personalZones.TryGetValue(player.SteamID, out var zoneSlot))
+                    {
+                        title = $"CT · {personal.Label}";
+                        choices.AddRange(personal.Positions.Select(position => position.Zone));
+                    }
+                    else
+                    {
+                        var position = personal.Positions.First(item => item.Slot == zoneSlot);
+                        title = $"CT · Site {_selectedSite} · {personal.Label}";
+                        rows.Add((position.Zone, position.Instruction));
+                    }
+                }
+                else if (!_selectedTactics.TryGetValue(team, out var collective))
+                {
+                    title = $"CT · Site {_selectedSite} · Approche";
+                    choices.AddRange(GetCurrentTactics(team).Select(option => option.Label));
+                }
+                else if (_selectedIntent is null)
+                {
+                    title = $"CT · {collective.Label} · Intention";
+                    choices.AddRange(collective.Intentions.Select(position => position.Zone));
+                }
+                else
+                {
+                    var position = collective.Intentions.First(item => item.Slot == _selectedIntent);
+                    title = $"CT · Site {_selectedSite} · {collective.Label}";
+                    rows.Add((position.Zone, position.Instruction));
+                }
+            }
+            else if (!_selectedTactics.TryGetValue(team, out var tactic))
+            {
+                title = "T · Scénario";
+                choices.AddRange(GetAvailableTactics(team).Select(option => option.Label));
             }
             else
             {
-                var teammates = GetHumanPlayers(team);
-                var votes = _tacticVotes.TryGetValue(team, out var teamVotes)
-                    ? teammates.Count(member => teamVotes.ContainsKey(member.SteamID)) : 0;
-                _hud.SetDialogVariableStringForPlayer(player, "ily_tactic", "value", "Tactique à choisir");
-                _hud.SetDialogVariableStringForPlayer(player, "ily_status", "value",
-                    $"Votes {votes}/{teammates.Count}  ·  .ily_tactic");
-                for (var index = 1; index <= 3; index++)
+                title = $"T · {tactic.Label}";
+                _selectedRoles.TryGetValue(team, out var roles);
+                foreach (var position in tactic.Positions)
                 {
-                    _hud.SetDialogVariableStringForPlayer(player, $"ily_role_{index}", "value", "");
-                    _hud.SetDialogVariableStringForPlayer(player, $"ily_detail_{index}", "value", "");
+                    var assigned = GetHumanPlayers(team).FirstOrDefault(member =>
+                        roles is not null && roles.TryGetValue(member.SteamID, out var slot) && slot == position.Slot);
+                    rows.Add(($"{position.Zone} · {assigned?.PlayerName ?? "libre"}", position.Instruction));
                 }
+                if (roles is null || !roles.ContainsKey(player.SteamID))
+                    choices.AddRange(tactic.Positions.Select(position => position.Zone));
+            }
+
+            if (choices.Count > 0) status = "Votez dans le chat: !1, !2…";
+            _hud.SetDialogVariableStringForPlayer(player, "ily_tactic", "value", title);
+            _hud.SetDialogVariableStringForPlayer(player, "ily_status", "value", status);
+            for (var index = 0; index < 4; index++)
+                _hud.SetDialogVariableStringForPlayer(player, $"ily_option_{index + 1}", "value",
+                    index < choices.Count ? $"!{index + 1}  {choices[index]}" : "");
+            for (var index = 0; index < 3; index++)
+            {
+                _hud.SetDialogVariableStringForPlayer(player, $"ily_role_{index + 1}", "value",
+                    index < rows.Count ? rows[index].Name : "");
+                _hud.SetDialogVariableStringForPlayer(player, $"ily_detail_{index + 1}", "value",
+                    index < rows.Count ? rows[index].Detail : "");
             }
 
             _hud.SetHasClassForPlayer(player, "ily_panel", "visible", true);
@@ -866,12 +1150,12 @@ public sealed class ILYLeadYouPlugin : BasePlugin
         if (player.Team == CsTeam.CounterTerrorist || player.Team == CsTeam.Terrorist)
         {
             ShowTeamTactic(player, player.Team);
-            player.PrintToChat("Commandes: .info / !info | .ily_ready / !ily_ready | .ily_tactic / !ily_tactic | .ily_role / !ily_role | .ily_start / !ily_start");
+            player.PrintToChat("Commandes: .info | .ily_start | .ily_ready | .ily_tactic | .ily_role (T) | .ily_stop");
         }
         else
         {
             player.PrintToChat("Les informations tactiques sont réservées aux joueurs de chaque équipe.");
-            player.PrintToChat("Commandes: .info / !info | .ily_start / !ily_start");
+            player.PrintToChat("Commandes: .info | .ily_start | .ily_stop");
         }
 
         player.PrintToChat("Cartes: Inferno, Anubis | Choix: Cache, Dust 2, Ancient | Autres: Overpass, Vertigo, Mirage...");
@@ -879,6 +1163,36 @@ public sealed class ILYLeadYouPlugin : BasePlugin
 
     private void ShowTeamTactic(CCSPlayerController player, CsTeam team)
     {
+        if (!_sessionActive)
+        {
+            player.PrintToChat("Session ILY inactive. Lancez .ily_start pendant la warmup.");
+            return;
+        }
+
+        if (team == CsTeam.CounterTerrorist)
+        {
+            player.PrintToChat($"Site CT: {_selectedSite ?? "à choisir"}.");
+            if (_roundEconomies.GetValueOrDefault(team) == EconomyTier.Lowbuy)
+                player.PrintToChat($"Mode Lowbuy: {_selectedMode ?? "à choisir"}.");
+            if (IsIndividualCtMode() && _personalTactics.TryGetValue(player.SteamID, out var personal))
+            {
+                player.PrintToChat($"Votre approche: {personal.Label}.");
+                if (_personalZones.TryGetValue(player.SteamID, out var zone))
+                {
+                    var position = personal.Positions.First(item => item.Slot == zone);
+                    player.PrintToChat($"Votre zone: {position.Zone}: {position.Instruction}");
+                }
+            }
+            else if (_selectedTactics.TryGetValue(team, out var collective) && _selectedIntent is int intent)
+            {
+                var position = collective.Intentions.First(item => item.Slot == intent);
+                player.PrintToChat($"Plan commun: {collective.Label} — {position.Zone}: {position.Instruction}");
+            }
+            else if (_selectedSite is not null)
+                player.PrintToChat($"Approches disponibles: {string.Join(" | ", GetCurrentTactics(team).Select(option => option.Label))}.");
+            return;
+        }
+
         var options = GetAvailableTactics(team);
         if (options.Count == 0)
         {

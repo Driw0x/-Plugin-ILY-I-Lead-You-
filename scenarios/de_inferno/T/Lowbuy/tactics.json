@@ -5,9 +5,24 @@
       "label": "Banane lente",
       "map": "de_inferno",
       "positions": [
-        { "slot": 1, "zone": "Banana", "instruction": "Prendre l'espace sans s'exposer seul.", "spawn": null },
-        { "slot": 2, "zone": "Banana", "instruction": "Garder les utilitaires pour l'exécution.", "spawn": null },
-        { "slot": 3, "zone": "Second mid", "instruction": "Surveiller la rotation et rejoindre au signal.", "spawn": null }
+        {
+          "slot": 1,
+          "zone": "Entry",
+          "instruction": "Banana: Prendre l'espace sans s'exposer seul.",
+          "spawn": null
+        },
+        {
+          "slot": 2,
+          "zone": "Second",
+          "instruction": "Banana: Garder les utilitaires pour l'exécution.",
+          "spawn": null
+        },
+        {
+          "slot": 3,
+          "zone": "Support",
+          "instruction": "Second mid: Surveiller la rotation et rejoindre au signal.",
+          "spawn": null
+        }
       ]
     },
     {
@@ -15,9 +30,24 @@
       "label": "Second mid vers Apps A",
       "map": "de_inferno",
       "positions": [
-        { "slot": 1, "zone": "Second mid", "instruction": "Prendre le duel avec le soutien du groupe.", "spawn": null },
-        { "slot": 2, "zone": "Apps", "instruction": "Progresser jusqu'à la sortie d'Apps.", "spawn": null },
-        { "slot": 3, "zone": "Banana", "instruction": "Garder le contrôle puis rejoindre l'exécution.", "spawn": null }
+        {
+          "slot": 1,
+          "zone": "Entry",
+          "instruction": "Second mid: Prendre le duel avec le soutien du groupe.",
+          "spawn": null
+        },
+        {
+          "slot": 2,
+          "zone": "Support",
+          "instruction": "Apps: Progresser jusqu'à la sortie d'Apps.",
+          "spawn": null
+        },
+        {
+          "slot": 3,
+          "zone": "Lurker",
+          "instruction": "Banana: Garder le contrôle puis rejoindre l'exécution.",
+          "spawn": null
+        }
       ]
     }
   ]

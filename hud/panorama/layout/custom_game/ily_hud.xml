@@ -9,6 +9,12 @@
             <Panel class="ily-divider" hittest="false" />
             <Label id="ily_tactic" class="ily-tactic" text="{s:value}" hittest="false" />
             <Label id="ily_status" class="ily-status" text="{s:value}" hittest="false" />
+            <Panel class="ily-options" hittest="false">
+                <Label id="ily_option_1" class="ily-option" text="{s:value}" hittest="false" />
+                <Label id="ily_option_2" class="ily-option" text="{s:value}" hittest="false" />
+                <Label id="ily_option_3" class="ily-option" text="{s:value}" hittest="false" />
+                <Label id="ily_option_4" class="ily-option" text="{s:value}" hittest="false" />
+            </Panel>
             <Panel class="ily-positions" hittest="false">
                 <Panel class="ily-position" hittest="false">
                     <Label id="ily_role_1" class="ily-role" text="{s:value}" hittest="false" />
@@ -23,7 +29,7 @@
                     <Label id="ily_detail_3" class="ily-detail" text="{s:value}" hittest="false" />
                 </Panel>
             </Panel>
-            <Label class="ily-help" text=".ily_tactic  ·  .ily_role  ·  .info" hittest="false" />
+            <Label class="ily-help" text="Choix: !1, !2… dans le chat  ·  .info" hittest="false" />
         </Panel>
     </Panel>
 </root>

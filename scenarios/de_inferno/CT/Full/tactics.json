@@ -1,23 +1,175 @@
 {
   "tactics": [
     {
-      "id": "default",
-      "label": "Défense standard",
+      "id": "a-pari",
+      "label": "Pari sur site A",
       "map": "de_inferno",
       "positions": [
-        { "slot": 1, "zone": "Pit", "instruction": "Tenir Long A avec l'utilitaire disponible.", "spawn": null },
-        { "slot": 2, "zone": "Arch / bibliothèque", "instruction": "Couvrir Mid et soutenir A.", "spawn": null },
-        { "slot": 3, "zone": "Site B", "instruction": "Jouer l'information et garder la rotation.", "spawn": null }
+        {
+          "slot": 1,
+          "zone": "Pit",
+          "instruction": "Tenir Long A avec l'utilitaire disponible.",
+          "spawn": null
+        },
+        {
+          "slot": 2,
+          "zone": "Arch / bibliothèque",
+          "instruction": "Couvrir Mid et soutenir A.",
+          "spawn": null
+        },
+        {
+          "slot": 3,
+          "zone": "Site B",
+          "instruction": "Jouer l'information et garder la rotation.",
+          "spawn": null
+        }
+      ],
+      "site": "A",
+      "intentions": [
+        {
+          "slot": 1,
+          "zone": "Tenir site A",
+          "instruction": "Concentrer la défense sur le site A."
+        },
+        {
+          "slot": 2,
+          "zone": "Prendre l’information",
+          "instruction": "Chercher l’information et annoncer rapidement le contact."
+        },
+        {
+          "slot": 3,
+          "zone": "Préparer la rotation A",
+          "instruction": "Garder une personne prête à tourner vers le site A."
+        }
       ]
     },
     {
-      "id": "aggressive-mid",
-      "label": "Prise d'information Mid",
+      "id": "a-rotation",
+      "label": "Joueur prêt à tourner vers A",
       "map": "de_inferno",
       "positions": [
-        { "slot": 1, "zone": "Top Mid", "instruction": "Prendre l'information avec un flash de soutien.", "spawn": null },
-        { "slot": 2, "zone": "Arch", "instruction": "Soutenir Mid puis revenir sur A.", "spawn": null },
-        { "slot": 3, "zone": "Site B", "instruction": "Tenir le site pendant la prise d'information.", "spawn": null }
+        {
+          "slot": 1,
+          "zone": "Pit",
+          "instruction": "Tenir Long A avec l'utilitaire disponible.",
+          "spawn": null
+        },
+        {
+          "slot": 2,
+          "zone": "Arch / bibliothèque",
+          "instruction": "Couvrir Mid et soutenir A.",
+          "spawn": null
+        },
+        {
+          "slot": 3,
+          "zone": "Rotation A",
+          "instruction": "Rester prêt à tourner vers le site A et annoncer les informations.",
+          "spawn": null
+        }
+      ],
+      "site": "A",
+      "intentions": [
+        {
+          "slot": 1,
+          "zone": "Tenir site A",
+          "instruction": "Concentrer la défense sur le site A."
+        },
+        {
+          "slot": 2,
+          "zone": "Prendre l’information",
+          "instruction": "Chercher l’information et annoncer rapidement le contact."
+        },
+        {
+          "slot": 3,
+          "zone": "Préparer la rotation A",
+          "instruction": "Garder une personne prête à tourner vers le site A."
+        }
+      ]
+    },
+    {
+      "id": "b-pari",
+      "label": "Pari sur site B",
+      "map": "de_inferno",
+      "positions": [
+        {
+          "slot": 1,
+          "zone": "Banana",
+          "instruction": "Prendre l’information en Banane.",
+          "spawn": null
+        },
+        {
+          "slot": 2,
+          "zone": "Site B",
+          "instruction": "Tenir le site B avec les utilitaires.",
+          "spawn": null
+        },
+        {
+          "slot": 3,
+          "zone": "CT / rotation",
+          "instruction": "Rester disponible pour la rotation.",
+          "spawn": null
+        }
+      ],
+      "site": "B",
+      "intentions": [
+        {
+          "slot": 1,
+          "zone": "Tenir site B",
+          "instruction": "Concentrer la défense sur le site B."
+        },
+        {
+          "slot": 2,
+          "zone": "Prendre l’information",
+          "instruction": "Chercher l’information et annoncer rapidement le contact."
+        },
+        {
+          "slot": 3,
+          "zone": "Préparer la rotation B",
+          "instruction": "Garder une personne prête à tourner vers le site B."
+        }
+      ]
+    },
+    {
+      "id": "b-rotation",
+      "label": "Joueur prêt à tourner vers B",
+      "map": "de_inferno",
+      "positions": [
+        {
+          "slot": 1,
+          "zone": "Banana",
+          "instruction": "Prendre l’information en Banane.",
+          "spawn": null
+        },
+        {
+          "slot": 2,
+          "zone": "Site B",
+          "instruction": "Tenir le site B avec les utilitaires.",
+          "spawn": null
+        },
+        {
+          "slot": 3,
+          "zone": "Rotation B",
+          "instruction": "Rester prêt à tourner vers le site B et annoncer les informations.",
+          "spawn": null
+        }
+      ],
+      "site": "B",
+      "intentions": [
+        {
+          "slot": 1,
+          "zone": "Tenir site B",
+          "instruction": "Concentrer la défense sur le site B."
+        },
+        {
+          "slot": 2,
+          "zone": "Prendre l’information",
+          "instruction": "Chercher l’information et annoncer rapidement le contact."
+        },
+        {
+          "slot": 3,
+          "zone": "Préparer la rotation B",
+          "instruction": "Garder une personne prête à tourner vers le site B."
+        }
       ]
     }
   ]
