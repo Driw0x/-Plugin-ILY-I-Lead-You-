@@ -1,0 +1,39 @@
+"RadioPanel.txt"
+{
+    "Groups"
+    {
+        "common"
+        {
+            "hotkey" "0"
+            "title" "ILY - Choix tactique"
+            "timeout" "10"
+            "Commands"
+            {
+                "ily_choice_1"
+                {
+                    "hotkey" "1"
+                    "label" "Choix 1"
+                    "cmd" "say !ily_pick 1"
+                }
+                "ily_choice_2"
+                {
+                    "hotkey" "2"
+                    "label" "Choix 2"
+                    "cmd" "say !ily_pick 2"
+                }
+                "ily_choice_3"
+                {
+                    "hotkey" "3"
+                    "label" "Choix 3"
+                    "cmd" "say !ily_pick 3"
+                }
+                "ily_choice_4"
+                {
+                    "hotkey" "4"
+                    "label" "Choix 4"
+                    "cmd" "say !ily_pick 4"
+                }
+            }
+        }
+    }
+}

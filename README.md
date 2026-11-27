@@ -5,14 +5,13 @@ Plugin CounterStrikeSharp pour des manches tactiques 3 CT contre 3 Terros sur In
 ## Installation et mise à jour serveur
 
 1. Installer CounterStrikeSharp et son runtime .NET 10 sur le serveur.
-2. Installer [CSSUniversalMenuAPI 0.4.0](https://github.com/CSGALS/CSSUniversalMenuAPI/releases/tag/v0.4.0) et [SharpModMenu](https://github.com/CSGALS/SharpModMenu/releases) dans `game/csgo/addons/counterstrikesharp/plugins/`.
-3. Exécuter `dotnet publish -c Release -o publish`.
-4. Copier le contenu complet de `publish/` dans `game/csgo/addons/counterstrikesharp/plugins/ILYLeadYou/`.
-5. Recharger les plugins ou redémarrer le serveur, puis lancer `de_inferno` en 3v3.
+2. Exécuter `dotnet publish -c Release -o publish`.
+3. Copier le contenu publié dans `game/csgo/addons/counterstrikesharp/plugins/ILYLeadYou/`.
+4. Installer [MultiAddonManager](https://github.com/Source2ZE/MultiAddonManager) et suivre la [procédure Workshop et NAS](workshop/README.md) pour tester les touches 1 à 4.
 
 ## Menus de sélection
 
-Les choix ILY s'affichent au centre de l'écran avec leurs intitulés adaptés à l'équipe, à l'économie et à l'étape. SharpModMenu permet de déplacer la sélection avec les touches de déplacement (Z/S/Q/D sur clavier AZERTY, W/S/A/D sur clavier QWERTY), de valider avec E et de fermer avec R. Aucun bind client ni addon Workshop n'est nécessaire. Le déplacement du joueur est bloqué pendant l'ouverture du menu. Les touches numériques 1 à 4 exigent des binds client et ne sont donc pas utilisées ici.
+ILY affiche les choix de votre équipe dans le HUD et le chat. Quand la liste s'affiche, ouvrez la radio native avec votre touche habituelle ou la commande client `radio`. Le panneau Workshop affiche quatre entrées numérotées et transmet votre choix à ILY. Les intitulés propres à la manche restent dans le HUD et le chat. Vous pouvez aussi choisir avec `!ily_pick <numéro>`, sans addon. `!ily_pick 0` ferme le choix côté serveur.
 
 ## Déroulement et commandes
 
@@ -28,6 +27,7 @@ Les choix ILY s'affichent au centre de l'écran avec leurs intitulés adaptés �
 - `.ily_unpause` ou `!ily_unpause` : un joueur CT et un joueur Terro doivent chacun l'utiliser pour reprendre. Le réglage vocal initial est rétabli ; les choix déjà faits restent actifs.
 - `.ily_stop` ou `!ily_stop` : arrête immédiatement la session ILY, même avant la fin des 5, 10 ou 15 manches ; tous les joueurs peuvent l'utiliser.
 - `.ily_tactic` ou `!ily_tactic` : rouvre l'étape de choix courante. `.ily_role` ou `!ily_role` : rouvre le choix d'un rôle T ou le choix CT courant (zone personnelle en Full, Force et Lowbuy « zones » ; intention commune en Eco et Lowbuy « intention »).
+- `!tactic`, `!role` et `!scenario` sont des alias de `!ily_tactic`, `!ily_role` et `!ily_info`.
 
 Les menus sont privés à l'équipe et une égalité de vote provoque un revote. Chaque manche ILY a de nouvelles économies et de nouveaux choix. Après chaque manche, les équipes disposent de 30 secondes pour choisir et valider ; à l'expiration, les choix manquants sont attribués au hasard et la manche démarre. `.ily_pause` suspend cette limite jusqu'aux deux `.ily_unpause`. MatchZy, s'il est installé, est mis en veille avec `css_sleep` dès `.ily_start`, puis relancé avec `css_match` à la fin ou à l'arrêt de la session. Sans MatchZy, ILY remet le serveur en warmup. `.ready`, `!ready`, `.r` et `!r` restent réservées à MatchZy.
 
