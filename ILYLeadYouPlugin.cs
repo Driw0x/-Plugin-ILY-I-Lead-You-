@@ -89,7 +89,6 @@ public sealed class ILYLeadYouPlugin : BasePlugin
     private bool _warmupSetupStarted;
     private bool _warmupSelectionForRound;
     private IlyRoundPhase _ilyRoundPhase;
-    private int _selectionWindow;
 
     public override string ModuleName => "I Lead You";
     public override string ModuleVersion => "1.0.0";
@@ -114,7 +113,6 @@ public sealed class ILYLeadYouPlugin : BasePlugin
             _completedRounds = 0;
             _pauseRequested = false;
             _paused = false;
-            _selectionWindow++;
             _unpauseTeams.Clear();
             ClearSelections();
             Server.NextFrame(StartWarmupWithoutMatchZy);
@@ -134,7 +132,7 @@ public sealed class ILYLeadYouPlugin : BasePlugin
         });
         AddCommand("css_ily_ready", "Mark your team ready before starting the ILY match.", OnReadyCommand);
         AddCommand("css_ily_forcestart", "Start the ILY round with random choices where needed.", OnForceRoundStartCommand);
-        AddCommand("css_ily_start", "Force the scenario to start without waiting for six players.", OnForceStartCommand);
+        AddCommand("css_ily_start", "Start the ILY selection phase.", OnStartCommand);
         AddCommand("css_ily_stop", "Stop the ILY session.", OnStopCommand);
         AddCommand("css_ily_config", "Choose the number of ILY rounds.", OnConfigCommand);
         AddCommand("css_ily_pause", "Pause ILY after the current round.", OnPauseCommand);
@@ -280,7 +278,6 @@ public sealed class ILYLeadYouPlugin : BasePlugin
                         EnableVoiceChat();
                         Broadcast("ILY en pause. Choix ouverts; un CT et un Terro doivent utiliser .ily_unpause.");
                     }
-                    else StartSelectionTimer();
                 });
             }
         }
@@ -364,7 +361,7 @@ public sealed class ILYLeadYouPlugin : BasePlugin
 
         if (message.Equals(".ily_start", StringComparison.OrdinalIgnoreCase))
         {
-            OnForceStartCommand(player, command);
+            OnStartCommand(player, command);
             return HookResult.Handled;
         }
 
@@ -450,12 +447,12 @@ public sealed class ILYLeadYouPlugin : BasePlugin
         ForceRoundStart(player);
     }
 
-    private void ForceRoundStart(CCSPlayerController? player)
+    private void ForceRoundStart(CCSPlayerController player)
     {
         if (!IsCurrentMapSupported()) return;
         if (!_sessionActive || _paused || _ilyRoundPhase != IlyRoundPhase.Idle || GetGameRules()?.WarmupPeriod != true)
         {
-            player?.PrintToChat(".ily_forcestart est disponible pendant les choix d'une manche ILY.");
+            player.PrintToChat(".ily_forcestart est disponible pendant les choix d'une manche ILY.");
             return;
         }
 
@@ -466,8 +463,7 @@ public sealed class ILYLeadYouPlugin : BasePlugin
         var availableTTactics = tTactics.Where(tactic => tactic.Positions.Count >= tPlayers.Count).ToList();
         if (ctPlayers.Count == 0 || tPlayers.Count == 0 || ctTactics.Count == 0 || availableTTactics.Count == 0)
         {
-            if (player is null) Broadcast("ILY: lancement impossible; joueurs ou rôles insuffisants.");
-            else player.PrintToChat("Impossible de lancer: il faut des joueurs dans chaque équipe, des tactiques et assez de rôles T.");
+            player.PrintToChat("Impossible de lancer: il faut des joueurs dans chaque équipe, des tactiques et assez de rôles T.");
             return;
         }
 
@@ -512,7 +508,7 @@ public sealed class ILYLeadYouPlugin : BasePlugin
         }
 
         Broadcast("ILY: choix manquants complétés aléatoirement. Démarrage de la manche.");
-        StartMatchAfterReady();
+        StartMatchAfterReady(true);
     }
 
     private bool IsTeamReady(CsTeam team)
@@ -702,7 +698,7 @@ public sealed class ILYLeadYouPlugin : BasePlugin
         return normalized.ToLowerInvariant();
     }
 
-    private void OnForceStartCommand(CCSPlayerController? player, CommandInfo command)
+    private void OnStartCommand(CCSPlayerController? player, CommandInfo command)
     {
         if (!IsCurrentMapSupported()) return;
 
@@ -766,7 +762,14 @@ public sealed class ILYLeadYouPlugin : BasePlugin
         player.PrintToChat($"ILY — {menu.Title}");
         foreach (var line in lines) player.PrintToChat(line);
         player.PrintToChat(hint);
-        player.PrintToCenterHtml(string.Join("<br>", lines.Prepend(menu.Title).Append(hint).Select(WebUtility.HtmlEncode)), 10);
+        var html = string.Join("<br>", lines.Prepend(menu.Title).Append(hint).Select(WebUtility.HtmlEncode));
+        void KeepVisible()
+        {
+            if (!player.IsValid || !_openMenus.TryGetValue(player.SteamID, out var current) || current != menu) return;
+            player.PrintToCenterHtml(html, 10);
+            AddTimer(9.0f, KeepVisible);
+        }
+        KeepVisible();
     }
 
     private static void AddMenuOption(ChoiceMenu menu, string title, Action<CCSPlayerController> selected) =>
@@ -782,6 +785,11 @@ public sealed class ILYLeadYouPlugin : BasePlugin
         if (!int.TryParse(argument, out var number) || number < 0 || number > menu.Options.Count)
         {
             player.PrintToChat($"Choisissez un numéro de 1 à {menu.Options.Count}.");
+            return;
+        }
+        if (number == 0 && _sessionActive)
+        {
+            player.PrintToChat("Terminez votre choix avant de fermer le menu.");
             return;
         }
 
@@ -841,7 +849,6 @@ public sealed class ILYLeadYouPlugin : BasePlugin
         RestoreVoiceChat();
         if (IsTeamReady(CsTeam.CounterTerrorist) && IsTeamReady(CsTeam.Terrorist))
             StartMatchAfterReady();
-        else StartSelectionTimer();
     }
 
     private void BeginRoundSelection()
@@ -851,17 +858,6 @@ public sealed class ILYLeadYouPlugin : BasePlugin
         SelectEconomies();
         Broadcast($"ILY: manche {_completedRounds + 1}/{_configuredRoundCount}. Choisissez vos plans, puis une personne par équipe utilise .ily_ready.");
         Server.NextFrame(OpenIncompleteMenus);
-    }
-
-    private void StartSelectionTimer()
-    {
-        var window = ++_selectionWindow;
-        Broadcast("ILY: 30 secondes pour choisir et valider les équipes.");
-        AddTimer(30.0f, () =>
-        {
-            if (window == _selectionWindow && _sessionActive && !_paused && _ilyRoundPhase == IlyRoundPhase.Idle)
-                ForceRoundStart(null);
-        });
     }
 
     private void EnableVoiceChat()
@@ -917,7 +913,6 @@ public sealed class ILYLeadYouPlugin : BasePlugin
     private void OnStopCommand(CCSPlayerController? player, CommandInfo command)
     {
         if (!_sessionActive) return;
-        _selectionWindow++;
         _sessionActive = false;
         _completedRounds = 0;
         _pauseRequested = false;
@@ -934,12 +929,12 @@ public sealed class ILYLeadYouPlugin : BasePlugin
         else StartWarmupWithoutMatchZy();
     }
 
-    private void StartMatchAfterReady()
+    private void StartMatchAfterReady(bool force = false)
     {
-        if (_ilyRoundPhase != IlyRoundPhase.Idle || _paused) return;
+        if (_ilyRoundPhase != IlyRoundPhase.Idle || _paused ||
+            !force && (!IsTeamReady(CsTeam.CounterTerrorist) || !IsTeamReady(CsTeam.Terrorist))) return;
 
         CloseAllMenus();
-        _selectionWindow++;
         _ilyRoundPhase = IlyRoundPhase.Starting;
         ApplyMatchRules();
         Server.ExecuteCommand("mp_freezetime 15");
@@ -1308,15 +1303,31 @@ public sealed class ILYLeadYouPlugin : BasePlugin
         {
             if (team == CsTeam.CounterTerrorist)
             {
-                if (_selectedSite is null ||
-                    (_roundEconomies.GetValueOrDefault(team) == EconomyTier.Lowbuy && _selectedMode is null) ||
-                    (IsIndividualCtMode() && !_personalZones.ContainsKey(player.SteamID)) ||
-                    (!IsIndividualCtMode() && !_selectedTactics.ContainsKey(team)))
-                    OpenTacticMenu(player);
-                else if (!IsIndividualCtMode() && _selectedIntent is null)
+                if (_selectedSite is null)
+                {
+                    if (!_siteVotes.ContainsKey(player.SteamID)) OpenSiteMenu(player);
+                }
+                else if (_roundEconomies.GetValueOrDefault(team) == EconomyTier.Lowbuy && _selectedMode is null)
+                {
+                    if (!_modeVotes.ContainsKey(player.SteamID)) OpenModeMenu(player);
+                }
+                else if (IsIndividualCtMode())
+                {
+                    if (!_personalZones.ContainsKey(player.SteamID)) OpenPersonalCtMenu(player);
+                }
+                else if (!_selectedTactics.ContainsKey(team))
+                {
+                    if (!_tacticVotes.TryGetValue(team, out var votes) || !votes.ContainsKey(player.SteamID))
+                        OpenTacticMenu(player);
+                }
+                else if (_selectedIntent is null && !_intentVotes.ContainsKey(player.SteamID))
                     OpenIntentMenu(player, _selectedTactics[team]);
             }
-            else if (!_selectedTactics.ContainsKey(team)) OpenTacticMenu(player);
+            else if (!_selectedTactics.ContainsKey(team))
+            {
+                if (!_tacticVotes.TryGetValue(team, out var votes) || !votes.ContainsKey(player.SteamID))
+                    OpenTacticMenu(player);
+            }
             else if (!_selectedRoles.TryGetValue(team, out var roles) || !roles.ContainsKey(player.SteamID))
                 OpenRoleMenu(player);
         }

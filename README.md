@@ -11,7 +11,7 @@ Plugin CounterStrikeSharp pour des manches tactiques 3 CT contre 3 Terros sur In
 
 ## Menus de sélection
 
-ILY affiche les choix de votre équipe dans le HUD et le chat. Quand la liste s'affiche, ouvrez la radio native avec votre touche habituelle ou la commande client `radio`. Le panneau Workshop affiche quatre entrées numérotées et transmet votre choix à ILY. Les intitulés propres à la manche restent dans le HUD et le chat. Vous pouvez aussi choisir avec `!ily_pick <numéro>`, sans addon. `!ily_pick 0` ferme le choix côté serveur.
+ILY affiche les choix de votre équipe dans le HUD et le chat. Quand la liste s'affiche, ouvrez la radio native avec votre touche habituelle ou la commande client `radio`. Le panneau Workshop affiche quatre entrées numérotées et transmet votre choix à ILY. Les intitulés propres à la manche restent dans le HUD et le chat jusqu'au vote. Vous pouvez aussi choisir avec `!ily_pick <numéro>`, sans addon. `!ily_pick 0` ferme uniquement le menu de configuration.
 
 ## Déroulement et commandes
 
@@ -29,7 +29,7 @@ ILY affiche les choix de votre équipe dans le HUD et le chat. Quand la liste s'
 - `.ily_tactic` ou `!ily_tactic` : rouvre l'étape de choix courante. `.ily_role` ou `!ily_role` : rouvre le choix d'un rôle T ou le choix CT courant (zone personnelle en Full, Force et Lowbuy « zones » ; intention commune en Eco et Lowbuy « intention »).
 - `!tactic`, `!role` et `!scenario` sont des alias de `!ily_tactic`, `!ily_role` et `!ily_info`.
 
-Les menus sont privés à l'équipe et une égalité de vote provoque un revote. Chaque manche ILY a de nouvelles économies et de nouveaux choix. Après chaque manche, les équipes disposent de 30 secondes pour choisir et valider ; à l'expiration, les choix manquants sont attribués au hasard et la manche démarre. `.ily_pause` suspend cette limite jusqu'aux deux `.ily_unpause`. MatchZy, s'il est installé, est mis en veille avec `css_sleep` dès `.ily_start`, puis relancé avec `css_match` à la fin ou à l'arrêt de la session. Sans MatchZy, ILY remet le serveur en warmup. `.ready`, `!ready`, `.r` et `!r` restent réservées à MatchZy.
+Les menus sont privés à l'équipe et une égalité de vote provoque un revote. Chaque manche ILY a de nouvelles économies et de nouveaux choix. Après chaque manche, la warmup reste ouverte jusqu'au ready des deux équipes ou à `.ily_forcestart`. `.ily_pause` maintient la partie en pause jusqu'aux deux `.ily_unpause`. MatchZy, s'il est installé, est mis en veille avec `css_sleep` dès `.ily_start`, puis relancé avec `css_match` à la fin ou à l'arrêt de la session. Sans MatchZy, ILY remet le serveur en warmup. `.ready`, `!ready`, `.r` et `!r` restent réservées à MatchZy.
 
 Les budgets sont Pistol round (800 $ des deux côtés), Lowbuy (2 800 $ T / 2 950 $ CT), Force (3 700 $ T / 3 900 $ CT) et Full (5 500 $ des deux côtés). L'argent est remis au montant exact de l'économie choisie à chaque nouvelle manche et au spawn. Les positions de spawn restent celles du jeu.
 
