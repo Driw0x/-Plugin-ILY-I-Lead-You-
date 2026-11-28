@@ -38,7 +38,7 @@ mm_client_extra_addons "<ID_WORKSHOP>"
 
 ## Récupérer et installer la branche sur le NAS
 
-Depuis un compte autorisé à utiliser Docker et à écrire dans le répertoire des plugins, exécutez ce bloc. Il prépare la publication avant l'arrêt du conteneur et conserve l'ancienne version hors du répertoire scanné par CounterStrikeSharp.
+Exécutez ce bloc avec un compte autorisé à utiliser Docker et à écrire dans les dossiers `counterstrikesharp`, `plugins` et `/opt/cs2/ily-backups`. Il publie la nouvelle version dans un dossier temporaire à côté de `plugins`, avant l'arrêt du conteneur. La sauvegarde reste hors du répertoire scanné par CounterStrikeSharp.
 
 ```bash
 (
@@ -52,29 +52,40 @@ Depuis un compte autorisé à utiliser Docker et à écrire dans le répertoire 
     fi
     git pull --ff-only origin codex/menu-vote-radio
 
-    sortie=$(mktemp -d)
+    plugin=/opt/cs2/data/game/csgo/addons/counterstrikesharp/plugins/ILYLeadYou
+    sauvegarde=/opt/cs2/ily-backups/ILYLeadYou-$(date +%Y%m%d-%H%M%S)
+    sortie=$(mktemp -d "$(dirname "$(dirname "$plugin")")/.ily-stage.XXXXXX")
     docker run --rm --user "$(id -u):$(id -g)" -e DOTNET_CLI_HOME=/tmp \
         -v "$PWD:/src" -v "$sortie:/out" -w /src \
         mcr.microsoft.com/dotnet/sdk:10.0 dotnet publish -c Release -o /out
     test -s "$sortie/ILYLeadYou.dll"
+    chmod 755 "$sortie"
 
-    plugin=/opt/cs2/data/game/csgo/addons/counterstrikesharp/plugins/ILYLeadYou
-    sauvegarde=/opt/cs2/ily-backups/ILYLeadYou-$(date +%Y%m%d-%H%M%S)
     mkdir -p /opt/cs2/ily-backups
+    test ! -e "$sauvegarde"
+    printf 'Sauvegarde éventuelle : %s\n' "$sauvegarde"
     docker stop -t 30 cs2-matchzy
-    if [ -d "$plugin" ]; then mv "$plugin" "$sauvegarde"; fi
-    mkdir -p "$plugin"
-    cp -a "$sortie/." "$plugin/"
+    if [ -d "$plugin" ] && ! mv -T "$plugin" "$sauvegarde"; then
+        docker start cs2-matchzy
+        exit 1
+    fi
+    if ! mv -T "$sortie" "$plugin"; then
+        if [ -d "$sauvegarde" ]; then mv -T "$sauvegarde" "$plugin"; fi
+        docker start cs2-matchzy
+        exit 1
+    fi
     docker start cs2-matchzy
     docker logs --since 2m cs2-matchzy
-    printf 'Sauvegarde éventuelle : %s\n' "$sauvegarde"
 )
 ```
 
 ## Vérifier dans CS2
 
-1. Reconnectez un client avec ses binds habituels. Hors session, tapez `!ily_config` et ouvrez la radio. Le titre doit être **ILY - Choix tactique**. Testez les chiffres 1 à 3, qui correspondent à 5, 10 et 15 manches. Le chiffre 4 doit être refusé pour ce menu.
+1. Reconnectez un client avec ses binds habituels. Hors session, tapez `!ily_config` et ouvrez la radio. Le titre doit être **ILY - Choix tactique**. Le chiffre 4 doit être refusé. Testez ensuite les chiffres 1 à 3, qui correspondent à 5, 10 et 15 manches. Rouvrez le menu avant chaque nouveau réglage.
 2. Lancez `!ily_start` sur Inferno. Vérifiez les choix de tactique et de rôle dans les deux équipes. Fermez la radio, puis vérifiez que les chiffres servent de nouveau à sélectionner les armes. Un vote partagé doit ramener la liste de choix et un rôle T déjà pris doit être refusé.
 3. Si le HUD et `!ily_pick 1` fonctionnent mais que le panneau ILY ne s'affiche pas, vérifiez le téléchargement Workshop. Si le panneau s'affiche et que le chiffre n'envoie rien, le test échoue côté client même si le plugin compile.
+4. Faites voter deux joueurs d'une équipe de trois pour le même choix. Quand le troisième quitte le serveur ou change d'équipe avant de voter, le résultat doit s'afficher sans nouveau vote.
 
-Pour revenir en arrière, retirez l'ID de `mm_client_extra_addons`. Arrêtez le conteneur, déplacez le plugin de test hors du dossier `plugins/`, puis remettez la sauvegarde affichée à la place de `plugins/ILYLeadYou`. Relancez `docker start cs2-matchzy` et reconnectez les clients.
+Si le conteneur reste arrêté après un échec de déploiement, vérifiez le dossier `plugins/ILYLeadYou` et le chemin de sauvegarde affiché. Déplacez toute installation incomplète hors de `plugins/`, remettez la sauvegarde à sa place si elle existe, puis exécutez `docker start cs2-matchzy`.
+
+Pour annuler le test Workshop, retirez aussi l'ID de `mm_client_extra_addons`. Si le conteneur tourne, arrêtez-le avant de restaurer le plugin. Redémarrez le conteneur et reconnectez les clients.
